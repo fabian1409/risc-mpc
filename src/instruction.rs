@@ -41,206 +41,206 @@ impl Display for Label {
 /// [`Instruction`] represents all supported RISC-V instructions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
-    Add {
+    ADD {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Addi {
-        rd: Register,
-        rs1: Register,
-        imm: i32,
-    },
-    And {
-        rd: Register,
-        rs1: Register,
-        rs2: Register,
-    },
-    Andi {
+    ADDI {
         rd: Register,
         rs1: Register,
         imm: i32,
     },
-    Auipc {
+    AND {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    ANDI {
+        rd: Register,
+        rs1: Register,
+        imm: i32,
+    },
+    AUIPC {
         rd: Register,
         imm: i32,
     },
-    Beq {
+    BEQ {
         rs1: Register,
         rs2: Register,
         label: Label,
     },
-    Bge {
+    BGE {
         rs1: Register,
         rs2: Register,
         label: Label,
     },
-    Blt {
+    BLT {
         rs1: Register,
         rs2: Register,
         label: Label,
     },
-    Bne {
+    BNE {
         rs1: Register,
         rs2: Register,
         label: Label,
     },
-    Div {
+    DIV {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Rem {
+    REM {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Jal {
+    JAL {
         rd: Register,
         label: Label,
     },
-    Jalr {
+    JALR {
         rd: Register,
         rs1: Register,
         offset: i32,
     },
-    Ld {
+    LD {
         rd: Register,
         offset: i32,
         rs1: Register,
     },
-    Lui {
+    LUI {
         rd: Register,
         imm: i32,
     },
-    Mul {
+    MUL {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Or {
+    OR {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Ori {
+    ORI {
         rd: Register,
         rs1: Register,
         imm: i32,
     },
-    Sd {
+    SD {
         rs2: Register,
         offset: i32,
         rs1: Register,
     },
-    Sll {
+    SLL {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Slli {
+    SLLI {
         rd: Register,
         rs1: Register,
         shamt: u8,
     },
-    Slt {
+    SLT {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Slti {
+    SLTI {
         rd: Register,
         rs1: Register,
         imm: i32,
     },
-    Srl {
+    SRL {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Srli {
+    SRLI {
         rd: Register,
         rs1: Register,
         shamt: u8,
     },
-    Sub {
+    SUB {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Xor {
+    XOR {
         rd: Register,
         rs1: Register,
         rs2: Register,
     },
-    Xori {
+    XORI {
         rd: Register,
         rs1: Register,
         imm: i32,
     },
-    Nop,
-    Li {
+    NOP,
+    LI {
         rd: Register,
         imm: i32,
     },
-    Mv {
+    MV {
         rd: Register,
         rs1: Register,
     },
-    Not {
+    NOT {
         rd: Register,
         rs1: Register,
     },
-    Neg {
+    NEG {
         rd: Register,
         rs1: Register,
     },
-    Seqz {
+    SEQZ {
         rd: Register,
         rs1: Register,
     },
-    Snez {
+    SNEZ {
         rd: Register,
         rs1: Register,
     },
-    Sltz {
+    SLTZ {
         rd: Register,
         rs1: Register,
     },
-    Sgtz {
+    SGTZ {
         rd: Register,
         rs1: Register,
     },
-    Beqz {
+    BEQZ {
         rs1: Register,
         label: Label,
     },
-    Bnez {
+    BNEZ {
         rs1: Register,
         label: Label,
     },
-    Blez {
+    BLEZ {
         rs1: Register,
         label: Label,
     },
-    Bgez {
+    BGEZ {
         rs1: Register,
         label: Label,
     },
-    Bltz {
+    BLTZ {
         rs1: Register,
         label: Label,
     },
-    Bgtz {
+    BGTZ {
         rs1: Register,
         label: Label,
     },
-    Bgt {
+    BGT {
         rs1: Register,
         rs2: Register,
         label: Label,
     },
-    Ble {
+    BLE {
         rs1: Register,
         rs2: Register,
         label: Label,
@@ -248,11 +248,11 @@ pub enum Instruction {
     J {
         label: Label,
     },
-    Jr {
+    JR {
         rs1: Register,
     },
-    Ret,
-    Call {
+    RET,
+    CALL {
         label: Label,
     },
     Label(Label),
@@ -272,118 +272,118 @@ impl FromStr for Instruction {
         let (instruction, operands) = s.trim().split_once(' ').unwrap_or((s.trim(), ""));
         let ops: Vec<&str> = operands.trim().split(',').map(str::trim).collect();
         match (instruction, ops.as_slice()) {
-            ("add", [rd, rs1, rs2]) => Ok(Self::Add {
+            ("add", [rd, rs1, rs2]) => Ok(Self::ADD {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("sub", [rd, rs1, rs2]) => Ok(Self::Sub {
+            ("sub", [rd, rs1, rs2]) => Ok(Self::SUB {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("mul", [rd, rs1, rs2]) => Ok(Self::Mul {
+            ("mul", [rd, rs1, rs2]) => Ok(Self::MUL {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("div", [rd, rs1, rs2]) => Ok(Self::Div {
+            ("div", [rd, rs1, rs2]) => Ok(Self::DIV {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("rem", [rd, rs1, rs2]) => Ok(Self::Rem {
+            ("rem", [rd, rs1, rs2]) => Ok(Self::REM {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("and", [rd, rs1, rs2]) => Ok(Self::And {
+            ("and", [rd, rs1, rs2]) => Ok(Self::AND {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("xor", [rd, rs1, rs2]) => Ok(Self::Xor {
+            ("xor", [rd, rs1, rs2]) => Ok(Self::XOR {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("or", [rd, rs1, rs2]) => Ok(Self::Or {
+            ("or", [rd, rs1, rs2]) => Ok(Self::OR {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("sll", [rd, rs1, rs2]) => Ok(Self::Sll {
+            ("sll", [rd, rs1, rs2]) => Ok(Self::SLL {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("slli", [rd, rs1, shamt]) => Ok(Self::Slli {
-                rd: rd.parse()?,
-                rs1: rs1.parse()?,
-                shamt: shamt.parse()?,
-            }),
-            ("srl", [rd, rs1, rs2]) => Ok(Self::Srl {
-                rd: rd.parse()?,
-                rs1: rs1.parse()?,
-                rs2: rs2.parse()?,
-            }),
-            ("srli", [rd, rs1, shamt]) => Ok(Self::Srli {
+            ("slli", [rd, rs1, shamt]) => Ok(Self::SLLI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 shamt: shamt.parse()?,
             }),
-            ("beq", [rs1, rs2, label]) => Ok(Self::Beq {
+            ("srl", [rd, rs1, rs2]) => Ok(Self::SRL {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("srli", [rd, rs1, shamt]) => Ok(Self::SRLI {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                shamt: shamt.parse()?,
+            }),
+            ("beq", [rs1, rs2, label]) => Ok(Self::BEQ {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
             }),
-            ("bne", [rs1, rs2, label]) => Ok(Self::Bne {
+            ("bne", [rs1, rs2, label]) => Ok(Self::BNE {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
             }),
-            ("blt" | "bltu", [rs1, rs2, label]) => Ok(Self::Blt {
+            ("blt" | "bltu", [rs1, rs2, label]) => Ok(Self::BLT {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
             }),
-            ("bge" | "bgeu", [rs1, rs2, label]) => Ok(Self::Bge {
+            ("bge" | "bgeu", [rs1, rs2, label]) => Ok(Self::BGE {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
             }),
-            ("jal", [rd, label]) => Ok(Self::Jal {
+            ("jal", [rd, label]) => Ok(Self::JAL {
                 rd: rd.parse()?,
                 label: label.parse()?,
             }),
-            ("jalr", [rd, rs1, offset]) => Ok(Self::Jalr {
+            ("jalr", [rd, rs1, offset]) => Ok(Self::JALR {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 offset: offset.parse()?,
             }),
-            ("addi", [rd, rs1, imm]) => Ok(Self::Addi {
+            ("addi", [rd, rs1, imm]) => Ok(Self::ADDI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
             }),
-            ("xori", [rd, rs1, imm]) => Ok(Self::Xori {
+            ("xori", [rd, rs1, imm]) => Ok(Self::XORI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
             }),
-            ("andi", [rd, rs1, imm]) => Ok(Self::Andi {
+            ("andi", [rd, rs1, imm]) => Ok(Self::ANDI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
             }),
-            ("ori", [rd, rs1, imm]) => Ok(Self::Ori {
+            ("ori", [rd, rs1, imm]) => Ok(Self::ORI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
             }),
             ("ld", [rd, offset_rs1]) => {
                 let (offset, rs1) = parse_offset_rs1(offset_rs1)?;
-                Ok(Self::Ld {
+                Ok(Self::LD {
                     rd: rd.parse()?,
                     offset: offset.parse()?,
                     rs1: rs1.parse()?,
@@ -391,93 +391,93 @@ impl FromStr for Instruction {
             }
             ("sd", [rs2, offset_rs1]) => {
                 let (offset, rs1) = parse_offset_rs1(offset_rs1)?;
-                Ok(Self::Sd {
+                Ok(Self::SD {
                     rs2: rs2.parse()?,
                     offset: offset.parse()?,
                     rs1: rs1.parse()?,
                 })
             }
-            ("slti", [rd, rs1, imm]) => Ok(Self::Slti {
+            ("slti", [rd, rs1, imm]) => Ok(Self::SLTI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
             }),
-            ("lui", [rd, imm]) => Ok(Self::Lui {
+            ("lui", [rd, imm]) => Ok(Self::LUI {
                 rd: rd.parse()?,
                 imm: imm.parse()?,
             }),
-            ("auipc", [rd, imm]) => Ok(Self::Auipc {
+            ("auipc", [rd, imm]) => Ok(Self::AUIPC {
                 rd: rd.parse()?,
                 imm: imm.parse()?,
             }),
-            ("nop", [""]) => Ok(Self::Nop),
-            ("li", [rd, imm]) => Ok(Self::Li {
+            ("nop", [""]) => Ok(Self::NOP),
+            ("li", [rd, imm]) => Ok(Self::LI {
                 rd: rd.parse()?,
                 imm: imm.parse()?,
             }),
-            ("mv", [rd, rs1]) => Ok(Self::Mv {
+            ("mv", [rd, rs1]) => Ok(Self::MV {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("not", [rd, rs1]) => Ok(Self::Not {
+            ("not", [rd, rs1]) => Ok(Self::NOT {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("neg", [rd, rs1]) => Ok(Self::Neg {
+            ("neg", [rd, rs1]) => Ok(Self::NEG {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("slt" | "sltu", [rd, rs1, rs2]) => Ok(Self::Slt {
+            ("slt" | "sltu", [rd, rs1, rs2]) => Ok(Self::SLT {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("seqz", [rd, rs1]) => Ok(Self::Seqz {
+            ("seqz", [rd, rs1]) => Ok(Self::SEQZ {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("snez", [rd, rs1]) => Ok(Self::Snez {
+            ("snez", [rd, rs1]) => Ok(Self::SNEZ {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("sltz", [rd, rs1]) => Ok(Self::Sltz {
+            ("sltz", [rd, rs1]) => Ok(Self::SLTZ {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("sgtz", [rd, rs1]) => Ok(Self::Sgtz {
+            ("sgtz", [rd, rs1]) => Ok(Self::SGTZ {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
             }),
-            ("beqz", [rs1, label]) => Ok(Self::Beqz {
+            ("beqz", [rs1, label]) => Ok(Self::BEQZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("bnez", [rs1, label]) => Ok(Self::Bnez {
+            ("bnez", [rs1, label]) => Ok(Self::BNEZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("blez", [rs1, label]) => Ok(Self::Blez {
+            ("blez", [rs1, label]) => Ok(Self::BLEZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("bgez", [rs1, label]) => Ok(Self::Bgez {
+            ("bgez", [rs1, label]) => Ok(Self::BGEZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("bltz", [rs1, label]) => Ok(Self::Bltz {
+            ("bltz", [rs1, label]) => Ok(Self::BLTZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("bgtz", [rs1, label]) => Ok(Self::Bgtz {
+            ("bgtz", [rs1, label]) => Ok(Self::BGTZ {
                 rs1: rs1.parse()?,
                 label: label.parse()?,
             }),
-            ("bgt", [rs1, rs2, label]) => Ok(Self::Bgt {
+            ("bgt", [rs1, rs2, label]) => Ok(Self::BGT {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
             }),
-            ("ble", [rs1, rs2, label]) => Ok(Self::Ble {
+            ("ble", [rs1, rs2, label]) => Ok(Self::BLE {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
                 label: label.parse()?,
@@ -485,11 +485,11 @@ impl FromStr for Instruction {
             ("j", [label]) => Ok(Self::J {
                 label: label.parse()?,
             }),
-            ("jr", [rs1]) => Ok(Self::Jr { rs1: rs1.parse()? }),
-            ("call", [label]) => Ok(Self::Call {
+            ("jr", [rs1]) => Ok(Self::JR { rs1: rs1.parse()? }),
+            ("call", [label]) => Ok(Self::CALL {
                 label: label.parse()?,
             }),
-            ("ret", [""]) => Ok(Self::Ret),
+            ("ret", [""]) => Ok(Self::RET),
             _ => {
                 if s.ends_with(':') {
                     Ok(Self::Label(s.strip_suffix(':').unwrap().parse()?))
@@ -504,55 +504,55 @@ impl FromStr for Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Instruction::Add { rd, rs1, rs2 } => write!(f, "add {rd},{rs1},{rs2}"),
-            Instruction::Addi { rd, rs1, imm } => write!(f, "addi {rd},{rs1},{imm}"),
-            Instruction::And { rd, rs1, rs2 } => write!(f, "and {rd},{rs1},{rs2}"),
-            Instruction::Andi { rd, rs1, imm } => write!(f, "andi {rd},{rs1},{imm}"),
-            Instruction::Auipc { rd, imm } => write!(f, "auipc {rd},{imm}"),
-            Instruction::Beq { rs1, rs2, label } => write!(f, "beq {rs1},{rs2},{label}"),
-            Instruction::Bge { rs1, rs2, label } => write!(f, "bge {rs1},{rs2},{label}"),
-            Instruction::Blt { rs1, rs2, label } => write!(f, "blt {rs1},{rs2},{label}"),
-            Instruction::Bne { rs1, rs2, label } => write!(f, "bne {rs1},{rs2},{label}"),
-            Instruction::Jal { rd, label } => write!(f, "jal {rd},{label}"),
-            Instruction::Jalr { rd, rs1, offset } => write!(f, "jalr {rd},{rs1},{offset}"),
-            Instruction::Ld { rd, offset, rs1 } => write!(f, "ld {rd},{offset}({rs1})"),
-            Instruction::Lui { rd, imm } => write!(f, "lui {rd},{imm}"),
-            Instruction::Mul { rd, rs1, rs2 } => write!(f, "mul {rd},{rs1},{rs2}"),
-            Instruction::Div { rd, rs1, rs2 } => write!(f, "div {rd},{rs1},{rs2}"),
-            Instruction::Rem { rd, rs1, rs2 } => write!(f, "rem {rd},{rs1},{rs2}"),
-            Instruction::Or { rd, rs1, rs2 } => write!(f, "or {rd},{rs1},{rs2}"),
-            Instruction::Ori { rd, rs1, imm } => write!(f, "ori {rd},{rs1},{imm}"),
-            Instruction::Sd { rs2, offset, rs1 } => write!(f, "sd {rs2},{offset}({rs1})"),
-            Instruction::Sll { rd, rs1, rs2 } => write!(f, "sll {rd},{rs1},{rs2}"),
-            Instruction::Slli { rd, rs1, shamt } => write!(f, "slli {rd},{rs1},{shamt}"),
-            Instruction::Slti { rd, rs1, imm } => write!(f, "slti {rd},{rs1},{imm}"),
-            Instruction::Srl { rd, rs1, rs2 } => write!(f, "srl {rd},{rs1},{rs2}"),
-            Instruction::Srli { rd, rs1, shamt } => write!(f, "srli {rd},{rs1},{shamt}"),
-            Instruction::Sub { rd, rs1, rs2 } => write!(f, "sub {rd},{rs1},{rs2}"),
-            Instruction::Xor { rd, rs1, rs2 } => write!(f, "xor {rd},{rs1},{rs2}"),
-            Instruction::Xori { rd, rs1, imm } => write!(f, "xori {rd},{rs1},{imm}"),
-            Instruction::Nop => write!(f, "nop"),
-            Instruction::Li { rd, imm } => write!(f, "li {rd},{imm}"),
-            Instruction::Mv { rd, rs1 } => write!(f, "mv {rd},{rs1}"),
-            Instruction::Not { rd, rs1 } => write!(f, "not {rd},{rs1}"),
-            Instruction::Neg { rd, rs1 } => write!(f, "neg {rd},{rs1}"),
-            Instruction::Slt { rd, rs1, rs2 } => write!(f, "slt {rd},{rs1},{rs2}"),
-            Instruction::Seqz { rd, rs1 } => write!(f, "seqz {rd},{rs1}"),
-            Instruction::Snez { rd, rs1 } => write!(f, "snez {rd},{rs1}"),
-            Instruction::Sltz { rd, rs1 } => write!(f, "sltz {rd},{rs1}"),
-            Instruction::Sgtz { rd, rs1 } => write!(f, "sgtz {rd},{rs1}"),
-            Instruction::Beqz { rs1, label } => write!(f, "beqz {rs1},{label}"),
-            Instruction::Bnez { rs1, label } => write!(f, "bnez {rs1},{label}"),
-            Instruction::Blez { rs1, label } => write!(f, "blez {rs1},{label}"),
-            Instruction::Bgez { rs1, label } => write!(f, "bgez {rs1},{label}"),
-            Instruction::Bltz { rs1, label } => write!(f, "bltz {rs1},{label}"),
-            Instruction::Bgtz { rs1, label } => write!(f, "bgtz {rs1},{label}"),
-            Instruction::Bgt { rs1, rs2, label } => write!(f, "bgt {rs1},{rs2},{label}]"),
-            Instruction::Ble { rs1, rs2, label } => write!(f, "ble {rs1},{rs2},{label}"),
+            Instruction::ADD { rd, rs1, rs2 } => write!(f, "add {rd},{rs1},{rs2}"),
+            Instruction::ADDI { rd, rs1, imm } => write!(f, "addi {rd},{rs1},{imm}"),
+            Instruction::AND { rd, rs1, rs2 } => write!(f, "and {rd},{rs1},{rs2}"),
+            Instruction::ANDI { rd, rs1, imm } => write!(f, "andi {rd},{rs1},{imm}"),
+            Instruction::AUIPC { rd, imm } => write!(f, "auipc {rd},{imm}"),
+            Instruction::BEQ { rs1, rs2, label } => write!(f, "beq {rs1},{rs2},{label}"),
+            Instruction::BGE { rs1, rs2, label } => write!(f, "bge {rs1},{rs2},{label}"),
+            Instruction::BLT { rs1, rs2, label } => write!(f, "blt {rs1},{rs2},{label}"),
+            Instruction::BNE { rs1, rs2, label } => write!(f, "bne {rs1},{rs2},{label}"),
+            Instruction::JAL { rd, label } => write!(f, "jal {rd},{label}"),
+            Instruction::JALR { rd, rs1, offset } => write!(f, "jalr {rd},{rs1},{offset}"),
+            Instruction::LD { rd, offset, rs1 } => write!(f, "ld {rd},{offset}({rs1})"),
+            Instruction::LUI { rd, imm } => write!(f, "lui {rd},{imm}"),
+            Instruction::MUL { rd, rs1, rs2 } => write!(f, "mul {rd},{rs1},{rs2}"),
+            Instruction::DIV { rd, rs1, rs2 } => write!(f, "div {rd},{rs1},{rs2}"),
+            Instruction::REM { rd, rs1, rs2 } => write!(f, "rem {rd},{rs1},{rs2}"),
+            Instruction::OR { rd, rs1, rs2 } => write!(f, "or {rd},{rs1},{rs2}"),
+            Instruction::ORI { rd, rs1, imm } => write!(f, "ori {rd},{rs1},{imm}"),
+            Instruction::SD { rs2, offset, rs1 } => write!(f, "sd {rs2},{offset}({rs1})"),
+            Instruction::SLL { rd, rs1, rs2 } => write!(f, "sll {rd},{rs1},{rs2}"),
+            Instruction::SLLI { rd, rs1, shamt } => write!(f, "slli {rd},{rs1},{shamt}"),
+            Instruction::SLTI { rd, rs1, imm } => write!(f, "slti {rd},{rs1},{imm}"),
+            Instruction::SRL { rd, rs1, rs2 } => write!(f, "srl {rd},{rs1},{rs2}"),
+            Instruction::SRLI { rd, rs1, shamt } => write!(f, "srli {rd},{rs1},{shamt}"),
+            Instruction::SUB { rd, rs1, rs2 } => write!(f, "sub {rd},{rs1},{rs2}"),
+            Instruction::XOR { rd, rs1, rs2 } => write!(f, "xor {rd},{rs1},{rs2}"),
+            Instruction::XORI { rd, rs1, imm } => write!(f, "xori {rd},{rs1},{imm}"),
+            Instruction::NOP => write!(f, "nop"),
+            Instruction::LI { rd, imm } => write!(f, "li {rd},{imm}"),
+            Instruction::MV { rd, rs1 } => write!(f, "mv {rd},{rs1}"),
+            Instruction::NOT { rd, rs1 } => write!(f, "not {rd},{rs1}"),
+            Instruction::NEG { rd, rs1 } => write!(f, "neg {rd},{rs1}"),
+            Instruction::SLT { rd, rs1, rs2 } => write!(f, "slt {rd},{rs1},{rs2}"),
+            Instruction::SEQZ { rd, rs1 } => write!(f, "seqz {rd},{rs1}"),
+            Instruction::SNEZ { rd, rs1 } => write!(f, "snez {rd},{rs1}"),
+            Instruction::SLTZ { rd, rs1 } => write!(f, "sltz {rd},{rs1}"),
+            Instruction::SGTZ { rd, rs1 } => write!(f, "sgtz {rd},{rs1}"),
+            Instruction::BEQZ { rs1, label } => write!(f, "beqz {rs1},{label}"),
+            Instruction::BNEZ { rs1, label } => write!(f, "bnez {rs1},{label}"),
+            Instruction::BLEZ { rs1, label } => write!(f, "blez {rs1},{label}"),
+            Instruction::BGEZ { rs1, label } => write!(f, "bgez {rs1},{label}"),
+            Instruction::BLTZ { rs1, label } => write!(f, "bltz {rs1},{label}"),
+            Instruction::BGTZ { rs1, label } => write!(f, "bgtz {rs1},{label}"),
+            Instruction::BGT { rs1, rs2, label } => write!(f, "bgt {rs1},{rs2},{label}]"),
+            Instruction::BLE { rs1, rs2, label } => write!(f, "ble {rs1},{rs2},{label}"),
             Instruction::J { label } => write!(f, "j {label}"),
-            Instruction::Jr { rs1 } => write!(f, "jr {rs1}"),
-            Instruction::Ret => write!(f, "ret"),
-            Instruction::Call { label } => write!(f, "call {label}"),
+            Instruction::JR { rs1 } => write!(f, "jr {rs1}"),
+            Instruction::RET => write!(f, "ret"),
+            Instruction::CALL { label } => write!(f, "call {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
         }
     }

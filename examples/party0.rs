@@ -1,5 +1,6 @@
 use risc_mpc::{
-    PartyBuilder, Register, Result, Share, TcpChannel, Value, CMP_AND_TRIPLES, PARTY_0, U64_BYTES,
+    Integer, Output, PartyBuilder, Register, Result, Share, TcpChannel, CMP_AND_TRIPLES, PARTY_0,
+    U64_BYTES,
 };
 use std::collections::BTreeSet;
 
@@ -52,15 +53,15 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_0, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_0, ch)
-        .register(Register::x10, Value::Public(0x0)) // set0 address
-        .register(Register::x11, Value::Public(n)) // set0 length
-        .register(Register::x12, Value::Public(U64_BYTES * n)) // set1 address
-        .register(Register::x13, Value::Public(k)) // set1 length
-        .register(Register::x14, Value::Public(U64_BYTES * (n + k))) // intersection address
+        .register(Register::x10, Integer::Public(0x0).into()) // set0 address
+        .register(Register::x11, Integer::Public(n).into()) // set0 length
+        .register(Register::x12, Integer::Public(U64_BYTES * n).into()) // set1 address
+        .register(Register::x13, Integer::Public(k).into()) // set1 length
+        .register(Register::x14, Integer::Public(U64_BYTES * (n + k)).into()) // intersection address
         .address_range(
             0x0,
             set.into_iter()
-                .map(|x| Value::Secret(Share::Arithmetic(x)))
+                .map(|x| Integer::Secret(Share::Arithmetic(x)).into())
                 .collect(),
         )?
         .n_and_triples(CMP_AND_TRIPLES * 2 * (n + k)) // 2 lt per set element cmp
@@ -68,9 +69,12 @@ fn main() -> Result<()> {
 
     party.execute(&program)?;
 
-    let len = party.register(Register::x10)?;
-    let intersection =
-        party.address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?;
+    let len = party.register(Register::x10)?.to_u64()?;
+    let intersection = party
+        .address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?
+        .into_iter()
+        .map(Output::to_u64)
+        .collect::<Result<Vec<u64>>>()?;
 
     println!("intersection = {intersection:?}");
     Ok(())

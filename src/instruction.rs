@@ -256,6 +256,119 @@ pub enum Instruction {
         label: Label,
     },
     Label(Label),
+    FAdd {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FSub {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FMul {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FDiv {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FMinMax {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FSqrt {
+        rd: Register,
+        rs1: Register,
+    },
+    FLd {
+        rd: Register,
+        offset: i32,
+        rs1: Register,
+    },
+    FSd {
+        rs2: Register,
+        offset: i32,
+        rs1: Register,
+    },
+    Fmadd {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+        rs3: Register,
+    },
+    Fmsub {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+        rs3: Register,
+    },
+    Fnmadd {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+        rs3: Register,
+    },
+    Fnmsub {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+        rs3: Register,
+    },
+    FcvtLD {
+        rd: Register,
+        rs1: Register,
+    },
+    FcvtDL {
+        rd: Register,
+        rs1: Register,
+    },
+    FmvXD {
+        rd: Register,
+        rs1: Register,
+    },
+    FmvDX {
+        rd: Register,
+        rs1: Register,
+    },
+    Fsgnj {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Fsgnjn {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Fsgnjx {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Feq {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Flt {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Fle {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    Fclass {
+        rd: Register,
+        rs1: Register,
+    },
 }
 
 fn parse_offset_rs1(s: &str) -> std::result::Result<(&str, &str), Error> {

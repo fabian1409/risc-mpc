@@ -1,5 +1,6 @@
 use crate::{
     party::{Location, PARTY_0},
+    types::Value,
     Share,
 };
 #[cfg(test)]
@@ -18,7 +19,7 @@ use tsyncp::channel::{channel_on, channel_to, BincodeChannel};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     Share(Share),
-    SecretInputs(Vec<(Location, Share)>),
+    SecretInputs(Vec<(Location, Value)>),
     Integer(Integer),
 }
 

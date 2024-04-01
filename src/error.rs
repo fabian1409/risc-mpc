@@ -23,15 +23,19 @@ pub enum Error {
     #[error("failed to get triple")]
     BeaverTripleError,
     #[error("tried to divide by secret value")]
-    DivBySecretValue,
+    DivBySecret,
     #[error("tried to shift by secret value")]
-    ShiftBySecretValue,
-    #[error("tried to use secret value as address")]
-    SecretValueAsAddress,
+    ShiftBySecret,
+    #[error("tried to use secret value or float as address")]
+    InvalidAddress,
     #[error("address {0} is not 8-byte aligned")]
     AddressNotAligned(u64),
     #[error("unknown label {0}")]
     UnknownLabel(String),
+    #[error("error in fixed-point embedding")]
+    FixedPointEmbeddingError,
+    #[error("unexpected value")]
+    UnexpectedValue,
 }
 
 /// [`Result`] type with riscMPC [`enum@Error`] type.

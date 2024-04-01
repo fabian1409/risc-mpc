@@ -1,6 +1,5 @@
-use anyhow::Result;
 use risc_mpc::{
-    PartyBuilder, Register, Share, TcpChannel, Value, CMP_AND_TRIPLES, PARTY_1, U64_BYTES,
+    PartyBuilder, Register, Result, Share, TcpChannel, Value, CMP_AND_TRIPLES, PARTY_1, U64_BYTES,
 };
 use std::collections::BTreeSet;
 
@@ -51,7 +50,7 @@ fn main() -> Result<()> {
     let k = set.len() as u64;
     let n = k;
 
-    let ch = TcpChannel::new(PARTY_1, "127.0.0.1:8000".parse()?)?;
+    let ch = TcpChannel::new(PARTY_1, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_1, ch)
         .register(Register::x10, Value::Public(0x0)) // set0 address
         .register(Register::x11, Value::Public(n)) // set0 length
@@ -69,9 +68,9 @@ fn main() -> Result<()> {
 
     party.execute(&program)?;
 
-    let len = party.open_register(Register::x10)?;
+    let len = party.register(Register::x10)?;
     let intersection =
-        party.open_address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?;
+        party.address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?;
 
     println!("intersection = {intersection:?}");
     Ok(())

@@ -2,7 +2,7 @@ use crate::{
     error::{Error, Result},
     Value,
 };
-use std::collections::HashMap;
+use intmap::IntMap;
 
 /// Number of bytes per [`u64`].
 pub const U64_BYTES: u64 = 8;
@@ -12,7 +12,7 @@ pub type Address = u64;
 /// [`Memory`] used by riscMPC VM
 #[derive(Default, Debug)]
 pub struct Memory {
-    memory: HashMap<Address, Value>,
+    memory: IntMap<Value>,
 }
 
 impl Memory {
@@ -23,8 +23,11 @@ impl Memory {
     /// Loads the [`Value`] from the given [`Address`].
     pub fn load(&mut self, address: Address) -> Result<Value> {
         if address % U64_BYTES == 0 {
-            let value = self.memory.entry(address).or_default();
-            Ok(*value)
+            if let Some(value) = self.memory.get(address) {
+                Ok(*value)
+            } else {
+                Ok(Value::default())
+            }
         } else {
             Err(Error::AddressNotAligned(address))
         }

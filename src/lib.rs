@@ -21,6 +21,7 @@ mod triple_provider;
 mod types;
 
 pub use channel::{TcpChannel, ThreadChannel};
+pub use error::Result;
 pub use instruction::{Instruction, Label, Program};
 pub use memory::{Address, U64_BYTES};
 pub use mpc_executor::CMP_AND_TRIPLES;

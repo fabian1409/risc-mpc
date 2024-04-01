@@ -185,7 +185,7 @@ pub struct Party<C: Channel> {
 
 impl<C: Channel> Party<C> {
     /// Open the [`Value`] in the given [`Register`].
-    pub fn open_register(&mut self, register: Register) -> Result<u64> {
+    pub fn register(&mut self, register: Register) -> Result<u64> {
         debug!("open register = {register:?}");
         match self.registers.get(register) {
             Value::Secret(share) => self.executor.reveal(share),
@@ -194,7 +194,7 @@ impl<C: Channel> Party<C> {
     }
 
     /// Open the [`Value`] in the given [`Register`] only for [`Party`].
-    pub fn open_register_for(&mut self, register: Register, id: usize) -> Result<Option<u64>> {
+    pub fn register_for(&mut self, register: Register, id: usize) -> Result<Option<u64>> {
         debug!("open register = {register:?}");
         match self.registers.get(register) {
             Value::Secret(share) => self.executor.reveal_for(share, id),
@@ -203,7 +203,7 @@ impl<C: Channel> Party<C> {
     }
 
     /// Open the [`Value`] at the given [`Address`].
-    pub fn open_address(&mut self, address: Address) -> Result<u64> {
+    pub fn address(&mut self, address: Address) -> Result<u64> {
         debug!("open address = {address:?}");
         match self.memory.load(address)? {
             Value::Secret(share) => self.executor.reveal(share),
@@ -212,7 +212,7 @@ impl<C: Channel> Party<C> {
     }
 
     /// Open the [`Value`] at the given [`Address`] only for [`Party`].
-    pub fn open_address_for(&mut self, address: Address, id: usize) -> Result<Option<u64>> {
+    pub fn address_for(&mut self, address: Address, id: usize) -> Result<Option<u64>> {
         debug!("open address = {address:?}");
         match self.memory.load(address)? {
             Value::Secret(share) => self.executor.reveal_for(share, id),
@@ -221,16 +221,16 @@ impl<C: Channel> Party<C> {
     }
 
     /// Open all values in the given [`Range<Address>`].
-    pub fn open_address_range(&mut self, range: Range<Address>) -> Result<Vec<u64>> {
+    pub fn address_range(&mut self, range: Range<Address>) -> Result<Vec<u64>> {
         debug!("open address range = {range:?}");
         range
             .step_by(8)
-            .map(|address| self.open_address(address))
+            .map(|address| self.address(address))
             .collect()
     }
 
     /// Open all values in the given [`Range<Address>`] only for [`Party`].
-    pub fn open_address_range_for(
+    pub fn address_range_for(
         &mut self,
         range: Range<Address>,
         id: usize,
@@ -238,7 +238,7 @@ impl<C: Channel> Party<C> {
         debug!("open address range = {range:?}");
         range
             .step_by(8)
-            .map(|address| self.open_address_for(address, id))
+            .map(|address| self.address_for(address, id))
             .collect()
     }
 
@@ -688,9 +688,8 @@ mod tests {
     use crate::{
         channel::{Message, MockChannel, ThreadChannel},
         party::PARTY_1,
-        Share, U64_BYTES,
+        Result, Share, U64_BYTES,
     };
-    use anyhow::Result;
 
     fn mock_channel() -> MockChannel {
         let mut ch = MockChannel::new();
@@ -731,7 +730,7 @@ mod tests {
             .register(Register::x10, Value::Public(5))
             .build()?;
         party.execute(&program)?;
-        let res = party.open_register(Register::x10)?;
+        let res = party.register(Register::x10)?;
 
         assert_eq!(res, 120); // 5!
         Ok(())
@@ -772,7 +771,7 @@ mod tests {
             .register(Register::x10, Value::Public(10))
             .build()?;
         party.execute(&program)?;
-        let res = party.open_register(Register::x10)?;
+        let res = party.register(Register::x10)?;
 
         assert_eq!(res, 55); // fib(10)
         Ok(())
@@ -853,9 +852,9 @@ mod tests {
 
             party.execute(&program.parse()?)?;
 
-            let len = party.open_register(Register::x10)?;
+            let len = party.register(Register::x10)?;
 
-            Ok(party.open_address_range(intersection_addr..intersection_addr + U64_BYTES * len)?)
+            party.address_range(intersection_addr..intersection_addr + U64_BYTES * len)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0, set0, set0_address));

@@ -929,8 +929,8 @@ mod tests {
                 .register(Register::x14, Integer::Public(intersection_addr).into())
                 .address_range(
                     set_address,
-                    set.into_iter()
-                        .map(|x| Integer::Secret(Share::Arithmetic(x)).into())
+                    set.iter()
+                        .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
                         .collect(),
                 )?
                 .build()?;

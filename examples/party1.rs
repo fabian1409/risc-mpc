@@ -60,8 +60,8 @@ fn main() -> Result<()> {
         .register(Register::x14, Integer::Public(U64_BYTES * (n + k)).into()) // intersection address
         .address_range(
             U64_BYTES * n,
-            set.into_iter()
-                .map(|x| Integer::Secret(Share::Arithmetic(x)).into())
+            set.iter()
+                .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
                 .collect(),
         )?
         .n_and_triples(CMP_AND_TRIPLES * 2 * (n + k)) // 2 lt per set element cmp

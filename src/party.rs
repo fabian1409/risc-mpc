@@ -844,8 +844,8 @@ mod tests {
                 .register(Register::x14, Value::Public(intersection_addr))
                 .address_range(
                     set_address,
-                    set.into_iter()
-                        .map(|x| Value::Secret(Share::Arithmetic(x)))
+                    set.iter()
+                        .map(|x| Value::Secret(Share::Arithmetic(*x)))
                         .collect(),
                 )?
                 .build()?;

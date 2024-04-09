@@ -577,8 +577,7 @@ impl<C: Channel> Party<C> {
                     let rs1 = self.registers.get(*rs1).try_into()?;
                     let res = self.executor.eq(rs1, Integer::Public(0))?;
                     debug!("seqz res = {res:?}");
-                    self.registers
-                        .set(*rd, Integer::Public(res.as_u64()).into());
+                    self.registers.set(*rd, res.into());
                 }
                 Instruction::SNEZ { rd, rs1 } => {
                     let rs1 = self.registers.get(*rs1).try_into()?;
@@ -590,20 +589,20 @@ impl<C: Channel> Party<C> {
                     let rs1 = self.registers.get(*rs1).try_into()?;
                     let lt = self.executor.lt(rs1, Integer::Public(0))?;
                     debug!("sltz lt = {lt:?}");
-                    self.registers.set(*rd, Integer::Public(lt.as_u64()).into());
+                    self.registers.set(*rd, lt.into());
                 }
                 Instruction::SLT { rd, rs1, rs2 } => {
                     let rs1 = self.registers.get(*rs1).try_into()?;
                     let rs2 = self.registers.get(*rs2).try_into()?;
                     let lt = self.executor.lt(rs1, rs2)?;
                     debug!("slt lt = {lt:?}");
-                    self.registers.set(*rd, Integer::Public(lt.as_u64()).into());
+                    self.registers.set(*rd, lt.into());
                 }
                 Instruction::SGTZ { rd, rs1 } => {
                     let rs1 = self.registers.get(*rs1).try_into()?;
                     let gt = self.executor.gt(rs1, Integer::Public(0))?;
                     debug!("sgtz gt = {gt:?}");
-                    self.registers.set(*rd, Integer::Public(gt.as_u64()).into());
+                    self.registers.set(*rd, gt.into());
                 }
                 Instruction::BEQZ { rs1, label } => {
                     let rs1 = self.registers.get(*rs1).try_into()?;
@@ -711,6 +710,218 @@ impl<C: Channel> Party<C> {
                     self.call_depth += 1;
                 }
                 Instruction::Label(_) => {}
+                Instruction::FADD { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fadd(rs1, rs2)?;
+                    debug!("fadd res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FSUB { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fsub(rs1, rs2)?;
+                    debug!("fsub res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FMUL { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fmul(rs1, rs2)?;
+                    debug!("fmul res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FDIV { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fdiv(rs1, rs2)?;
+                    debug!("fdiv res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FMIN { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fmin(rs1, rs2)?;
+                    debug!("fmin res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FMAX { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fmax(rs1, rs2)?;
+                    debug!("fmax res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FSQRT { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let res = self.executor.fsqrt(rs1)?;
+                    debug!("fsqrt res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FLD { rd, offset, rs1 } => {
+                    self.load(*rs1, *offset, *rd)?;
+                }
+                Instruction::FSD { rs2, offset, rs1 } => {
+                    self.store(*rs1, *offset, *rs2)?;
+                }
+                Instruction::FMADD { rd, rs1, rs2, rs3 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let res = self.executor.fmul(rs1, rs2)?;
+                    let res = self.executor.fadd(res, rs3)?;
+                    debug!("fmadd res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FMSUB { rd, rs1, rs2, rs3 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let res = self.executor.fmul(rs1, rs2)?;
+                    let res = self.executor.fsub(res, rs3)?;
+                    debug!("fmsub res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FNMADD { rd, rs1, rs2, rs3 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let res = self.executor.fmul(rs1, rs2)?;
+                    let res = self.executor.fadd(res, rs3)?;
+                    let res = self.executor.fsub(Float::Public(0.0), res)?;
+                    debug!("fnmadd res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FNMSUB { rd, rs1, rs2, rs3 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let res = self.executor.fmul(rs1, rs2)?;
+                    let res = self.executor.fsub(res, rs3)?;
+                    let res = self.executor.fsub(Float::Public(0.0), res)?;
+                    debug!("fnmsub res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FCVTLUD { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let res = self.executor.fcvtlud(rs1)?;
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FCVTDLU { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let res = self.executor.fcvtdlu(rs1)?;
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FMV { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1);
+                    self.registers.set(*rd, rs1);
+                }
+                Instruction::FMVXD { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    match rs1 {
+                        Float::Public(x) => {
+                            self.registers.set(*rd, Integer::Public(x.to_bits()).into())
+                        }
+                        Float::Secret(_) => todo!("secret float to integer"),
+                    }
+                }
+                Instruction::FMVDX { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    match rs1 {
+                        Integer::Public(x) => self
+                            .registers
+                            .set(*rd, Float::Public(f64::from_bits(x)).into()),
+                        Integer::Secret(_) => todo!("secret integer to float"),
+                    }
+                }
+                Instruction::FSGNJ { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fsgnj(rs1, rs2)?;
+                    debug!("fsgnj res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FSGNJN { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fsgnjn(rs1, rs2)?;
+                    debug!("fsgnjn res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FSGNJX { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let res = self.executor.fsgnjx(rs1, rs2)?;
+                    debug!("fsgnjx res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FEQ { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let eq = self.executor.feq(rs1, rs2)?;
+                    debug!("feq = {eq:?}");
+                    self.registers.set(*rd, eq.into());
+                }
+                Instruction::FLT { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let lt = self.executor.flt(rs1, rs2)?;
+                    debug!("flt = {lt:?}");
+                    self.registers.set(*rd, lt.into());
+                }
+                Instruction::FLE { rd, rs1, rs2 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let le = self.executor.fle(rs1, rs2)?;
+                    debug!("fle = {le:?}");
+                    self.registers.set(*rd, le.into());
+                }
+                Instruction::FCLASS { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let class = match rs1 {
+                        Float::Public(x) => {
+                            if x == f64::NEG_INFINITY {
+                                1u64 << 0
+                            } else if x.is_sign_negative() && x.is_normal() {
+                                1u64 << 1
+                            } else if x.is_sign_negative() && x.is_subnormal() {
+                                1u64 << 2
+                            } else if x.is_sign_negative() && x == -0.0 {
+                                1u64 << 3
+                            } else if x.is_sign_positive() && x == 0.0 {
+                                1u64 << 4
+                            } else if x.is_sign_positive() && x.is_subnormal() {
+                                1u64 << 5
+                            } else if x.is_sign_positive() && x.is_normal() {
+                                1u64 << 6
+                            } else if x == f64::INFINITY {
+                                1u64 << 7
+                            } else if x.is_nan() {
+                                1u64 << 8
+                            } else {
+                                0
+                            }
+                        }
+                        _ => todo!("class of secret float"),
+                    };
+                    debug!("fclass class = {class:?}");
+                    self.registers.set(*rd, Integer::Public(class).into());
+                }
+                Instruction::FNEG { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let sign_rs1 = self.executor.fsign(rs1)?;
+                    let sign = self.executor.sub(Integer::Public(0), sign_rs1)?;
+                    let abs_rs1 = self.executor.fabs(rs1)?;
+                    let res = self.executor.fmul_integer(abs_rs1, sign)?;
+                    debug!("fneg res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
+                Instruction::FABS { rd, rs1 } => {
+                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let res = self.executor.fabs(rs1)?;
+                    debug!("fabs res = {res:?}");
+                    self.registers.set(*rd, res.into());
+                }
             };
             self.update_pc(self.pc, 1);
         }
@@ -802,22 +1013,18 @@ mod tests {
         "
         .parse()?;
 
+        let data = [1.25, 2.8, 5.2, 8.0, 4.15];
+        let mean = data.iter().sum::<f64>() / data.len() as f64;
+
         let mut party = PartyBuilder::new(PARTY_0, mock_channel())
             .register(Register::x10, Integer::Public(0x0).into())
-            .register(Register::x10, Integer::Public(3).into())
-            .address_range(
-                0x0,
-                vec![
-                    Float::Public(2.0).into(),
-                    Float::Public(3.5).into(),
-                    Float::Public(1.5).into(),
-                ],
-            )?
+            .register(Register::x11, Integer::Public(data.len() as u64).into())
+            .address_range(0x0, data.iter().map(|x| Float::Public(*x).into()).collect())?
             .build()?;
         party.execute(&program)?;
-        let res = party.register(Register::x10)?.to_f64()?;
+        let res = party.register(Register::f10)?.to_f64()?;
 
-        assert_relative_eq!(res, 3.5, epsilon = 10e-3);
+        assert_relative_eq!(res, mean, epsilon = 10e-3);
         Ok(())
     }
 

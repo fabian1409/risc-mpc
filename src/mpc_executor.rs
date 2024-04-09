@@ -14,7 +14,7 @@ use rand::Rng;
 /// Number of AND triples needed per secret `<`, `>`, `<=`, `>=`.
 /// Secret `==` and `!=` need `2 * CMP_AND_TRIPLES`.
 pub const CMP_AND_TRIPLES: u64 = 13;
-const FIXED_POINT_INTEGER_PART: u64 = 16;
+pub const FIXED_POINT_INTEGER_PART: u64 = 16;
 const FIXED_POINT_DECIMAL_PART: u64 = 16;
 
 /// Share `x` with given [`Share`] type.
@@ -67,7 +67,7 @@ pub fn embed_fixed_point(fixed_point: f64) -> Result<u64> {
     if (fixed_point as i64) < (1 << (FIXED_POINT_INTEGER_PART - 1))
         || (fixed_point as i64) >= -(1 << (FIXED_POINT_INTEGER_PART - 1))
     {
-        Ok((fixed_point * (1 << FIXED_POINT_INTEGER_PART) as f64) as u64)
+        Ok((fixed_point * (1 << FIXED_POINT_INTEGER_PART) as f64) as i64 as u64)
     } else {
         Err(Error::FixedPointEmbeddingError)
     }
@@ -83,7 +83,7 @@ pub fn to_fixed_point(embedded: u64) -> Result<f64> {
         } else {
             embedded
         };
-        let fixed_point = scaled as f64 / (1 << FIXED_POINT_INTEGER_PART) as f64;
+        let fixed_point = scaled as i64 as f64 / (1 << FIXED_POINT_INTEGER_PART) as f64;
         Ok(fixed_point)
     }
 }
@@ -284,7 +284,7 @@ impl<C: Channel> MPCExecutor<C> {
     }
 
     pub fn fadd(&mut self, x: Float, y: Float) -> Result<Float> {
-        debug!("addf x = {x:?} y = {y:?}");
+        debug!("fadd x = {x:?} y = {y:?}");
         match (x, y) {
             (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x + y)),
             (Float::Secret(x), Float::Secret(y)) => Ok(Float::Secret(x.wrapping_add(y))),
@@ -340,7 +340,7 @@ impl<C: Channel> MPCExecutor<C> {
     }
 
     pub fn fsub(&mut self, x: Float, y: Float) -> Result<Float> {
-        debug!("subf x = {x:?} y = {y:?}");
+        debug!("fsub x = {x:?} y = {y:?}");
         match (x, y) {
             (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x - y)),
             (Float::Secret(x), Float::Secret(y)) => Ok(Float::Secret(x.wrapping_sub(y))),
@@ -402,7 +402,7 @@ impl<C: Channel> MPCExecutor<C> {
     }
 
     pub fn fmul(&mut self, x: Float, y: Float) -> Result<Float> {
-        debug!("mulf x = {x:?} y = {y:?}");
+        debug!("fmul x = {x:?} y = {y:?}");
         match (x, y) {
             (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x * y)),
             (Float::Secret(x), Float::Secret(y)) => {
@@ -416,21 +416,27 @@ impl<C: Channel> MPCExecutor<C> {
                 let d = self.reveal(d_share)?;
                 let e = self.reveal(e_share)?;
 
-                if self.id == PARTY_0 {
-                    Ok(Float::Secret(
+                let res = if self.id == PARTY_0 {
+                    Integer::Secret(Share::Arithmetic(
                         c.wrapping_add(d.wrapping_mul(y))
                             .wrapping_add(e.wrapping_mul(x))
                             .wrapping_sub(d.wrapping_mul(e)),
                     ))
                 } else {
-                    Ok(Float::Secret(
+                    Integer::Secret(Share::Arithmetic(
                         c.wrapping_add(d.wrapping_mul(y))
                             .wrapping_add(e.wrapping_mul(x)),
                     ))
-                }
+                };
+                // truncate after mul
+                let res = self.div(res, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?;
+                Ok(Float::Secret(res.as_u64()))
             }
             (Float::Secret(y), Float::Public(x)) | (Float::Public(x), Float::Secret(y)) => {
-                Ok(Float::Secret(x.embed()?.wrapping_mul(y)))
+                let res = Integer::Secret(Share::Arithmetic(x.embed()?.wrapping_mul(y)));
+                // truncate after mul
+                let res = self.div(res, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?;
+                Ok(Float::Secret(res.as_u64()))
             }
         }
     }
@@ -445,12 +451,20 @@ impl<C: Channel> MPCExecutor<C> {
                     Ok(Integer::Public(x / y))
                 }
             }
+            (Integer::Secret(Share::Arithmetic(x)), Integer::Public(y)) => {
+                if y == 0 {
+                    Err(Error::DivByZero)
+                } else {
+                    let tmp = Integer::Secret(Share::Arithmetic(x / y));
+                    self.sub(tmp, Integer::Public(u64::MAX / y))
+                }
+            }
             _ => Err(Error::DivBySecret),
         }
     }
 
     pub fn fdiv(&mut self, x: Float, y: Float) -> Result<Float> {
-        debug!("divf x = {x:?} y = {y:?}");
+        debug!("fdiv x = {x:?} y = {y:?}");
         match (x, y) {
             (Float::Public(x), Float::Public(y)) => {
                 if y == 0.0 {
@@ -458,6 +472,15 @@ impl<C: Channel> MPCExecutor<C> {
                 } else {
                     Ok(Float::Public(x / y))
                 }
+            }
+            (Float::Secret(x), Float::Public(y)) => {
+                let res = self.div(
+                    Integer::Secret(Share::Arithmetic(
+                        x.wrapping_mul(1u64 << FIXED_POINT_INTEGER_PART),
+                    )),
+                    Integer::Public(y.embed()?),
+                )?;
+                Ok(Float::Secret(res.as_u64()))
             }
             _ => Err(Error::DivBySecret),
         }
@@ -467,7 +490,12 @@ impl<C: Channel> MPCExecutor<C> {
         debug!("rem x = {x:?} y = {y:?}");
         match (x, y) {
             (Integer::Public(x), Integer::Public(y)) => Ok(Integer::Public(x % y)),
-            _ => todo!(),
+            (Integer::Secret(_), Integer::Public(_)) => {
+                let div = self.div(x, y)?;
+                let mul = self.mul(div, y)?;
+                self.sub(x, mul)
+            }
+            _ => Err(Error::DivBySecret),
         }
     }
 
@@ -684,24 +712,149 @@ impl<C: Channel> MPCExecutor<C> {
         }
     }
 
-    pub fn fblt(&mut self, x: Float, y: Float) -> Result<bool> {
-        match self.flt(x, y)? {
-            Integer::Secret(share) => Ok(self.reveal(share)? != 0),
-            Integer::Public(lt) => Ok(lt != 0),
+    pub fn fle(&mut self, x: Float, y: Float) -> Result<Integer> {
+        debug!("fle x = {x:?} y = {y:?}");
+        let gt = self.flt(y, x)?;
+        self.sub(Integer::Public(1), gt)
+    }
+
+    pub fn feq(&mut self, x: Float, y: Float) -> Result<Integer> {
+        debug!("feq x = {x:?} y = {y:?}");
+        let le = self.fle(x, y)?;
+        let lt = self.flt(x, y)?;
+        self.sub(le, lt)
+    }
+
+    pub fn fmin(&mut self, x: Float, y: Float) -> Result<Float> {
+        debug!("fmin x = {x:?} y = {y:?}");
+        match (x, y) {
+            (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x.min(y))),
+            _ => {
+                let lt = self.flt(x, y)?;
+                let tmp = self.fsub(x, y)?;
+                let tmp = self.fmul_integer(tmp, lt)?;
+                let max = self.fadd(tmp, y)?;
+                Ok(max)
+            }
         }
     }
 
-    pub fn fble(&mut self, x: Float, y: Float) -> Result<bool> {
-        debug!("fble x = {x:?} y = {y:?}");
-        let gt = self.fblt(y, x)?;
-        Ok(!gt)
+    pub fn fmax(&mut self, x: Float, y: Float) -> Result<Float> {
+        debug!("fmin x = {x:?} y = {y:?}");
+        match (x, y) {
+            (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x.max(y))),
+            _ => {
+                let lt = self.flt(x, y)?;
+                let tmp = self.fsub(y, x)?;
+                let tmp = self.fmul_integer(tmp, lt)?;
+                let max = self.fadd(tmp, x)?;
+                Ok(max)
+            }
+        }
     }
 
-    pub fn fbeq(&mut self, x: Float, y: Float) -> Result<bool> {
-        debug!("fbeq x = {x:?} y = {y:?}");
-        let le = self.fble(x, y)?;
-        let lt = self.fblt(x, y)?;
-        Ok(le && !lt)
+    pub fn fsqrt(&mut self, x: Float) -> Result<Float> {
+        debug!("fsqrt x = {x:?}");
+        match x {
+            Float::Public(x) => Ok(Float::Public(x.sqrt())),
+            Float::Secret(x) => {
+                // https://en.wikipedia.org/wiki/Fast_inverse_square_root
+                // y_n+1 = 1/2 * y_n * (3 − x * y_n * y_n).
+                let mut y_n = Integer::Secret(Share::Arithmetic(1));
+                for _ in 0..2 {
+                    let tmp = self.mul(y_n, y_n)?;
+                    let tmp = self.mul(Integer::Secret(Share::Arithmetic(x)), tmp)?;
+                    let tmp = self.sub(Integer::Public(3), tmp)?;
+                    let tmp = self.mul(y_n, tmp)?;
+                    y_n = self.div(tmp, Integer::Public(2))?;
+                }
+                // inv_sqrt * x
+                Ok(Float::Secret(
+                    self.mul(y_n, Integer::Secret(Share::Arithmetic(x)))?
+                        .as_u64(),
+                ))
+            }
+        }
+    }
+
+    pub fn fsign(&mut self, x: Float) -> Result<Integer> {
+        debug!("float_get_sign_bit x = {x:?}");
+        let gtz = self.flt(Float::Public(0.0), x)?;
+        let tmp = self.mul(gtz, Integer::Public(2))?;
+        let sign = self.sub(tmp, Integer::Public(1))?;
+        Ok(sign)
+    }
+
+    pub fn fabs(&mut self, x: Float) -> Result<Float> {
+        debug!("fabs x = {x:?}");
+        let sign = self.fsign(x)?;
+        match x {
+            Float::Public(x) => Ok(Float::Public(x.abs())),
+            Float::Secret(x) => Ok(Float::Secret(
+                self.mul(Integer::Secret(Share::Arithmetic(x)), sign)?
+                    .as_u64(),
+            )),
+        }
+    }
+
+    pub fn fmul_integer(&mut self, x: Float, y: Integer) -> Result<Float> {
+        debug!("fmul_integer x = {x:?} y = {y:?}");
+        match x {
+            Float::Public(x) => match y {
+                Integer::Public(sign) => Ok(Float::Public(x * sign as i64 as f64)),
+                Integer::Secret(_) => Ok(Float::Secret(
+                    self.mul(y, Integer::Public(x.embed()?))?.as_u64(),
+                )),
+            },
+            Float::Secret(x) => Ok(Float::Secret(
+                self.mul(Integer::Secret(Share::Arithmetic(x)), y)?.as_u64(),
+            )),
+        }
+    }
+
+    pub fn fsgnj(&mut self, x: Float, y: Float) -> Result<Float> {
+        debug!("fsignj x = {x:?} y = {y:?}");
+        let sign_y = self.fsign(y)?;
+        let abs_x = self.fabs(x)?;
+        self.fmul_integer(abs_x, sign_y)
+    }
+
+    pub fn fsgnjn(&mut self, x: Float, y: Float) -> Result<Float> {
+        debug!("fsignjn x = {x:?} y = {y:?}");
+        let sign_y = self.fsign(y)?;
+        let sign = self.sub(Integer::Public(0), sign_y)?;
+        let abs_x = self.fabs(x)?;
+        self.fmul_integer(abs_x, sign)
+    }
+
+    pub fn fsgnjx(&mut self, x: Float, y: Float) -> Result<Float> {
+        debug!("fsignjx x = {x:?} y = {y:?}");
+        let sign_y = self.fsign(y)?;
+        let sign = self.sub(Integer::Public(0), sign_y)?;
+        let abs_x = self.fabs(x)?;
+        self.fmul_integer(abs_x, sign)
+    }
+
+    pub fn fcvtlud(&mut self, x: Float) -> Result<Integer> {
+        debug!("fcvt d to lu x = {x:?}");
+        match x {
+            Float::Public(x) => Ok(Integer::Public(x as u64)),
+            Float::Secret(x) => self.div(
+                Integer::Secret(Share::Arithmetic(x)),
+                Integer::Public(1u64 << FIXED_POINT_INTEGER_PART),
+            ),
+        }
+    }
+
+    pub fn fcvtdlu(&mut self, x: Integer) -> Result<Float> {
+        debug!("fcvt lu to d x = {x:?}");
+        match x {
+            Integer::Public(x) => Ok(Float::Public(x as f64)),
+            Integer::Secret(_) => {
+                let embedded = self.mul(x, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?;
+                Ok(Float::Secret(embedded.as_u64()))
+            }
+        }
     }
 }
 
@@ -733,6 +886,22 @@ mod tests {
         }
     }
 
+    fn output(executor: &mut MPCExecutor<ThreadChannel>, integer: Integer) -> u64 {
+        match integer {
+            Integer::Secret(share) => executor.reveal(share).unwrap(),
+            Integer::Public(res) => res,
+        }
+    }
+
+    fn float_output(executor: &mut MPCExecutor<ThreadChannel>, float: Float) -> f64 {
+        match float {
+            Float::Secret(embedded) => {
+                to_fixed_point(executor.reveal(Share::Arithmetic(embedded)).unwrap()).unwrap()
+            }
+            Float::Public(res) => res,
+        }
+    }
+
     fn float_inputs(x: Float) -> (Float, Float) {
         match x {
             Float::Secret(x) => {
@@ -742,66 +911,112 @@ mod tests {
             Float::Public(_) => (x, x),
         }
     }
-
-    macro_rules! test {
-        ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
-            let run = |id: usize, ch: ThreadChannel, x: Integer, y: Integer, expected| {
-                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
-                let value = $f(&mut executor, x, y).unwrap();
-                let res = match value {
-                    Integer::Secret(share) => executor.reveal(share).unwrap(),
-                    Integer::Public(res) => res,
-                };
-                assert_eq!(res, expected);
-            };
+    macro_rules! run {
+        ($run:expr, $x:expr, $y:expr, $expected:expr) => {{
             let (ch0, ch1) = create_channels();
             let (x0, x1) = inputs($x);
             let (y0, y1) = inputs($y);
-            let party0 = thread::spawn(move || run(0, ch0, x0, y0, $expected));
-            let party1 = thread::spawn(move || run(1, ch1, x1, y1, $expected));
+            let party0 = thread::spawn(move || $run(0, ch0, x0, y0, $expected));
+            let party1 = thread::spawn(move || $run(1, ch1, x1, y1, $expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};
-        ($f:expr, $x:expr, $expected:expr) => {{
-            let run = |id: usize, ch: ThreadChannel, x: Integer, expected| {
-                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
-                let value = $f(&mut executor, x).unwrap();
-                let res = match value {
-                    Integer::Secret(share) => executor.reveal(share).unwrap(),
-                    Integer::Public(res) => res,
-                };
-                assert_eq!(res, expected);
-            };
+        ($run:expr, $x:expr, $expected:expr) => {{
             let (ch0, ch1) = create_channels();
             let (x0, x1) = inputs($x);
-            let party0 = thread::spawn(move || run(0, ch0, x0, $expected));
-            let party1 = thread::spawn(move || run(1, ch1, x1, $expected));
+            let party0 = thread::spawn(move || $run(0, ch0, x0, $expected));
+            let party1 = thread::spawn(move || $run(1, ch1, x1, $expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};
     }
 
+    macro_rules! run_float {
+        ($run:expr, $x:expr, $y:expr, $expected:expr) => {{
+            let (ch0, ch1) = create_channels();
+            let (x0, x1) = float_inputs($x);
+            let (y0, y1) = float_inputs($y);
+            let party0 = thread::spawn(move || $run(0, ch0, x0, y0, $expected));
+            let party1 = thread::spawn(move || $run(1, ch1, x1, y1, $expected));
+            party0.join().unwrap();
+            party1.join().unwrap();
+        }};
+        ($run:expr, $x:expr, $expected:expr) => {{
+            let (ch0, ch1) = create_channels();
+            let (x0, x1) = float_inputs($x);
+            let party0 = thread::spawn(move || $run(0, ch0, x0, $expected));
+            let party1 = thread::spawn(move || $run(1, ch1, x1, $expected));
+            party0.join().unwrap();
+            party1.join().unwrap();
+        }};
+    }
+
+    macro_rules! test {
+        (MPCExecutor::div, $x:expr, $y:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Integer, y: Integer, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = MPCExecutor::div(&mut executor, x, y).unwrap();
+                let res = output(&mut executor, value);
+                assert!(res == expected || res + 1 == expected || res - 1 == expected);
+            };
+            run!(run, $x, $y, $expected);
+        }};
+        ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Integer, y: Integer, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = $f(&mut executor, x, y).unwrap();
+                let res = output(&mut executor, value);
+                assert_eq!(res, expected);
+            };
+            run!(run, $x, $y, $expected);
+        }};
+        ($f:expr, $x:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Integer, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = $f(&mut executor, x).unwrap();
+                let res = output(&mut executor, value);
+                assert_eq!(res, expected);
+            };
+            run!(run, $x, $expected);
+        }};
+    }
+
     macro_rules! test_f64 {
+        (MPCExecutor::fcvtlud, $x:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Float, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = MPCExecutor::fcvtlud(&mut executor, x).unwrap();
+                let res = output(&mut executor, value);
+                assert!(res == expected || res + 1 == expected || res - 1 == expected);
+            };
+            run_float!(run, $x, $expected);
+        }};
+        (MPCExecutor::fcvtdlu, $x:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Integer, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = MPCExecutor::fcvtdlu(&mut executor, x).unwrap();
+                let res = float_output(&mut executor, value);
+                assert_relative_eq!(res, expected, epsilon = 10e-3);
+            };
+            run!(run, $x, $expected);
+        }};
+        ($f:expr, $x:expr, $expected:expr) => {{
+            let run = |id: usize, ch: ThreadChannel, x: Float, expected| {
+                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+                let value = $f(&mut executor, x).unwrap();
+                let res = float_output(&mut executor, value);
+                assert_relative_eq!(res, expected, epsilon = 10e-3);
+            };
+            run_float!(run, $x, $expected);
+        }};
         ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
             let run = |id: usize, ch: ThreadChannel, x: Float, y: Float, expected| {
                 let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
                 let value = $f(&mut executor, x, y).unwrap();
-                let res = match value {
-                    Float::Secret(embedded) => {
-                        to_fixed_point(executor.reveal(Share::Arithmetic(embedded)).unwrap())
-                            .unwrap()
-                    }
-                    Float::Public(res) => res,
-                };
+                let res = float_output(&mut executor, value);
                 assert_relative_eq!(res, expected, epsilon = 10e-3);
             };
-            let (ch0, ch1) = create_channels();
-            let (x0, x1) = float_inputs($x);
-            let (y0, y1) = float_inputs($y);
-            let party0 = thread::spawn(move || run(0, ch0, x0, y0, $expected));
-            let party1 = thread::spawn(move || run(1, ch1, x1, y1, $expected));
-            party0.join().unwrap();
-            party1.join().unwrap();
+            run_float!(run, $x, $y, $expected);
         }};
     }
 
@@ -885,6 +1100,35 @@ mod tests {
         let x = Integer::Secret(Share::Arithmetic(3));
         let y = Integer::Secret(Share::Arithmetic(2));
         test!(MPCExecutor::mul, x, y, 6);
+    }
+
+    #[test]
+    fn div_public_public() {
+        let x = Integer::Public(8);
+        let y = Integer::Public(2);
+        test!(MPCExecutor::div, x, y, 4);
+    }
+
+    #[test]
+    fn div_secret_public() {
+        let x = Integer::Secret(Share::Arithmetic(8));
+        let y = Integer::Public(2);
+        test!(MPCExecutor::div, x, y, 4);
+    }
+
+    #[test]
+    fn rem_public_public() {
+        let x = Integer::Public(8);
+        let y = Integer::Public(2);
+        test!(MPCExecutor::rem, x, y, 0);
+    }
+
+    #[ignore = "will fail if div is off by 1"]
+    #[test]
+    fn rem_secret_public() {
+        let x = Integer::Secret(Share::Arithmetic(8));
+        let y = Integer::Public(2);
+        test!(MPCExecutor::rem, x, y, 0);
     }
 
     #[test]
@@ -1155,5 +1399,215 @@ mod tests {
         let x = Float::Secret(1.5.embed().unwrap());
         let y = Float::Secret(0.5.embed().unwrap());
         test_f64!(MPCExecutor::fadd, x, y, 2.0);
+    }
+
+    #[test]
+    fn fsub_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fsub, x, y, 1.0);
+    }
+
+    #[test]
+    fn fsub_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fsub, x, y, 1.0);
+    }
+
+    #[test]
+    fn fsub_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret(0.5.embed().unwrap());
+        test_f64!(MPCExecutor::fsub, x, y, 1.0);
+    }
+
+    #[test]
+    fn fmul_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmul, x, y, 0.75);
+    }
+
+    #[test]
+    fn fmul_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmul, x, y, 0.75);
+    }
+
+    #[test]
+    fn fdiv_public_public() {
+        let x = Float::Public(7.0);
+        let y = Float::Public(2.0);
+        test_f64!(MPCExecutor::fdiv, x, y, 3.5);
+    }
+
+    #[test]
+    fn fdiv_secret_public() {
+        let x = Float::Secret(7.0.embed().unwrap());
+        let y = Float::Public(2.0);
+        test_f64!(MPCExecutor::fdiv, x, y, 3.5);
+    }
+
+    #[test]
+    fn fmul_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret(0.5.embed().unwrap());
+        test_f64!(MPCExecutor::fmul, x, y, 0.75);
+    }
+
+    #[test]
+    fn fmin_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmin, x, y, 0.5);
+    }
+
+    #[test]
+    fn fmin_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmin, x, y, 0.5);
+    }
+
+    #[test]
+    fn fmin_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret(0.5.embed().unwrap());
+        test_f64!(MPCExecutor::fmin, x, y, 0.5);
+    }
+
+    #[test]
+    fn fmax_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmax, x, y, 1.5);
+    }
+
+    #[test]
+    fn fmax_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(0.5);
+        test_f64!(MPCExecutor::fmax, x, y, 1.5);
+    }
+
+    #[test]
+    fn fmax_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret(0.5.embed().unwrap());
+        test_f64!(MPCExecutor::fmax, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnj_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnj, x, y, -1.5);
+    }
+
+    #[test]
+    fn fsgnj_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnj, x, y, -1.5);
+    }
+
+    #[test]
+    fn fsgnj_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret((-0.5).embed().unwrap());
+        test_f64!(MPCExecutor::fsgnj, x, y, -1.5);
+    }
+
+    #[test]
+    fn fsgnjn_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnjn, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnjn_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnjn, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnjn_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret((-0.5).embed().unwrap());
+        test_f64!(MPCExecutor::fsgnjn, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnjx_public_public() {
+        let x = Float::Public(1.5);
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnjx, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnjx_secret_public() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Public(-1.0);
+        test_f64!(MPCExecutor::fsgnjx, x, y, 1.5);
+    }
+
+    #[test]
+    fn fsgnjx_secret_secret() {
+        let x = Float::Secret(1.5.embed().unwrap());
+        let y = Float::Secret((-0.5).embed().unwrap());
+        test_f64!(MPCExecutor::fsgnjx, x, y, 1.5);
+    }
+
+    #[test]
+    fn fabs_public() {
+        let x = Float::Public(-1.5);
+        test_f64!(MPCExecutor::fabs, x, 1.5);
+    }
+
+    #[test]
+    fn fabs_secret() {
+        let x = Float::Secret((-1.5).embed().unwrap());
+        test_f64!(MPCExecutor::fabs, x, 1.5);
+    }
+
+    #[test]
+    fn fsqrt_public() {
+        let x = Float::Public(16.0);
+        test_f64!(MPCExecutor::fsqrt, x, 4.0);
+    }
+
+    #[ignore = "not finished"]
+    #[test]
+    fn fsqrt_secret() {
+        let x = Float::Secret(16.0.embed().unwrap());
+        test_f64!(MPCExecutor::fsqrt, x, 4.0);
+    }
+
+    #[test]
+    fn fcvtlud_public() {
+        let x = Float::Public(4.2);
+        test_f64!(MPCExecutor::fcvtlud, x, 4);
+    }
+
+    #[test]
+    fn fcvtlud_secret() {
+        let x = Float::Secret(4.2.embed().unwrap());
+        test_f64!(MPCExecutor::fcvtlud, x, 4);
+    }
+
+    #[test]
+    fn fcvtdlu_public() {
+        let x = Integer::Public(3);
+        test_f64!(MPCExecutor::fcvtdlu, x, 3.0);
+    }
+
+    #[test]
+    fn fcvtdlu_secret() {
+        let x = Integer::Secret(Share::Arithmetic(3));
+        test_f64!(MPCExecutor::fcvtdlu, x, 3.0);
     }
 }

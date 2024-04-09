@@ -276,7 +276,12 @@ pub enum Instruction {
         rs1: Register,
         rs2: Register,
     },
-    FMINMAX {
+    FMIN {
+        rd: Register,
+        rs1: Register,
+        rs2: Register,
+    },
+    FMAX {
         rd: Register,
         rs1: Register,
         rs2: Register,
@@ -319,11 +324,15 @@ pub enum Instruction {
         rs2: Register,
         rs3: Register,
     },
-    FCVTLD {
+    FCVTLUD {
         rd: Register,
         rs1: Register,
     },
-    FCVTDL {
+    FCVTDLU {
+        rd: Register,
+        rs1: Register,
+    },
+    FMV {
         rd: Register,
         rs1: Register,
     },
@@ -366,6 +375,14 @@ pub enum Instruction {
         rs2: Register,
     },
     FCLASS {
+        rd: Register,
+        rs1: Register,
+    },
+    FNEG {
+        rd: Register,
+        rs1: Register,
+    },
+    FABS {
         rd: Register,
         rs1: Register,
     },
@@ -603,6 +620,142 @@ impl FromStr for Instruction {
                 label: label.parse()?,
             }),
             ("ret", [""]) => Ok(Self::RET),
+            ("fadd.d", [rd, rs1, rs2]) => Ok(Self::FADD {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fsub.d", [rd, rs1, rs2]) => Ok(Self::FSUB {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fmul.d", [rd, rs1, rs2]) => Ok(Self::FMUL {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fdiv.d", [rd, rs1, rs2]) => Ok(Self::FDIV {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fmin.d", [rd, rs1, rs2]) => Ok(Self::FMIN {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fmax.d", [rd, rs1, rs2]) => Ok(Self::FMAX {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fsqrt.d", [rd, rs1]) => Ok(Self::FSQRT {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fld", [rd, offset_rs1]) => {
+                let (offset, rs1) = parse_offset_rs1(offset_rs1)?;
+                Ok(Self::FLD {
+                    rd: rd.parse()?,
+                    offset: offset.parse()?,
+                    rs1: rs1.parse()?,
+                })
+            }
+            ("fsd", [rs2, offset_rs1]) => {
+                let (offset, rs1) = parse_offset_rs1(offset_rs1)?;
+                Ok(Self::FSD {
+                    rs2: rs2.parse()?,
+                    offset: offset.parse()?,
+                    rs1: rs1.parse()?,
+                })
+            }
+            ("fmadd.d", [rd, rs1, rs2, rs3]) => Ok(Self::FMADD {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+                rs3: rs3.parse()?,
+            }),
+            ("fmsub.d", [rd, rs1, rs2, rs3]) => Ok(Self::FMSUB {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+                rs3: rs3.parse()?,
+            }),
+            ("fnmadd.d", [rd, rs1, rs2, rs3]) => Ok(Self::FNMADD {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+                rs3: rs3.parse()?,
+            }),
+            ("fnmsub.d", [rd, rs1, rs2, rs3]) => Ok(Self::FNMSUB {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+                rs3: rs3.parse()?,
+            }),
+            ("fcvt.lu.d", [rd, rs1]) => Ok(Self::FCVTLUD {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fcvt.d.lu", [rd, rs1]) => Ok(Self::FCVTDLU {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fmv.d", [rd, rs1]) => Ok(Self::FMV {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fmv.x.d", [rd, rs1]) => Ok(Self::FMVXD {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fmv.d.x", [rd, rs1]) => Ok(Self::FMVDX {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fsgnj.d", [rd, rs1, rs2]) => Ok(Self::FSGNJ {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fsgnjn.d", [rd, rs1, rs2]) => Ok(Self::FSGNJN {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fsgnjx.d", [rd, rs1, rs2]) => Ok(Self::FSGNJX {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("feq.d", [rd, rs1, rs2]) => Ok(Self::FEQ {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("flt.d", [rd, rs1, rs2]) => Ok(Self::FLT {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fle.d", [rd, rs1, rs2]) => Ok(Self::FLE {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+                rs2: rs2.parse()?,
+            }),
+            ("fclass.d", [rd, rs1]) => Ok(Self::FCLASS {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fneg.d", [rd, rs1]) => Ok(Self::FNEG {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
+            ("fabs.d", [rd, rs1]) => Ok(Self::FABS {
+                rd: rd.parse()?,
+                rs1: rs1.parse()?,
+            }),
             _ => {
                 if s.ends_with(':') {
                     Ok(Self::Label(s.strip_suffix(':').unwrap().parse()?))
@@ -667,6 +820,7 @@ impl Display for Instruction {
             Instruction::RET => write!(f, "ret"),
             Instruction::CALL { label } => write!(f, "call {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
+            _ => todo!(),
         }
     }
 }

@@ -284,7 +284,7 @@ impl<C: Channel> Party<C> {
     ) -> Result<u64> {
         match label {
             Label::Text(name) => text_labels
-                .get(name)
+                .get(name.trim_end_matches("@plt"))
                 .copied()
                 .ok_or(Error::UnknownLabel(label.to_string())),
             Label::Numeric(name) => {

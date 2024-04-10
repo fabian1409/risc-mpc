@@ -34,5 +34,5 @@ pub enum Error {
     UnknownLabel(String),
 }
 
-/// [`Result`] type with riscMPC [`enum@Error`] type.
+/// [`Result`] type for riscMPC.
 pub type Result<T> = std::result::Result<T, Error>;

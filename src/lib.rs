@@ -1,12 +1,12 @@
 //! riscMPC: general-purpose multi-party computation from RISC-V assembly.
 //!
-//! # Example: private set intersection
+//! # Example: mean wage
 //!
-//! This examples shows how to compute PSI using riscMPC.
+//! This examples shows how to compute the mean salary without revealing salaries to the other party.
 //! The code for both parties can be found in the `examples` directory.
 //!
 //! ```no_run
-#![doc = include_str!("../examples/party0.rs")]
+#![doc = include_str!("../examples/mean_salary_party0.rs")]
 //! ```
 
 mod channel;

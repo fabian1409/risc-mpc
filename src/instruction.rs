@@ -255,6 +255,9 @@ pub enum Instruction {
     CALL {
         label: Label,
     },
+    TAIL {
+        label: Label,
+    },
     Label(Label),
 }
 
@@ -287,12 +290,12 @@ impl FromStr for Instruction {
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("div", [rd, rs1, rs2]) => Ok(Self::DIV {
+            ("div" | "divu", [rd, rs1, rs2]) => Ok(Self::DIV {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
             }),
-            ("rem", [rd, rs1, rs2]) => Ok(Self::REM {
+            ("rem" | "remu", [rd, rs1, rs2]) => Ok(Self::REM {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 rs2: rs2.parse()?,
@@ -489,6 +492,9 @@ impl FromStr for Instruction {
             ("call", [label]) => Ok(Self::CALL {
                 label: label.parse()?,
             }),
+            ("tail", [label]) => Ok(Self::TAIL {
+                label: label.parse()?,
+            }),
             ("ret", [""]) => Ok(Self::RET),
             _ => {
                 if s.ends_with(':') {
@@ -553,6 +559,7 @@ impl Display for Instruction {
             Instruction::JR { rs1 } => write!(f, "jr {rs1}"),
             Instruction::RET => write!(f, "ret"),
             Instruction::CALL { label } => write!(f, "call {label}"),
+            Instruction::TAIL { label } => write!(f, "tail {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
         }
     }

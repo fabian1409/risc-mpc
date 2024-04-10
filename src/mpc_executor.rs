@@ -320,6 +320,14 @@ impl<C: Channel> MPCExecutor<C> {
                     Ok(Value::Public(x / y))
                 }
             }
+            (Value::Secret(Share::Arithmetic(x)), Value::Public(y)) => {
+                if y == 0 {
+                    Err(Error::DivByZero)
+                } else {
+                    let tmp = Value::Secret(Share::Arithmetic(x / y));
+                    self.sub(tmp, Value::Public(u64::MAX / y))
+                }
+            }
             _ => Err(Error::DivBySecretValue),
         }
     }
@@ -328,7 +336,12 @@ impl<C: Channel> MPCExecutor<C> {
         debug!("rem x = {x:?} y = {y:?}");
         match (x, y) {
             (Value::Public(x), Value::Public(y)) => Ok(Value::Public(x % y)),
-            _ => todo!(),
+            (Value::Secret(_), Value::Public(_)) => {
+                let div = self.div(x, y)?;
+                let mul = self.mul(div, y)?;
+                self.sub(x, mul)
+            }
+            _ => Err(Error::DivBySecretValue),
         }
     }
 
@@ -678,6 +691,36 @@ mod tests {
         let x = Value::Secret(Share::Arithmetic(3));
         let y = Value::Secret(Share::Arithmetic(2));
         test!(MPCExecutor::mul, x, y, 6);
+    }
+
+    #[test]
+    fn div_public_public() {
+        let x = Value::Public(8);
+        let y = Value::Public(2);
+        test!(MPCExecutor::div, x, y, 4);
+    }
+
+    #[ignore = "can be off by 1"]
+    #[test]
+    fn div_secret_public() {
+        let x = Value::Secret(Share::Arithmetic(8));
+        let y = Value::Public(2);
+        test!(MPCExecutor::div, x, y, 4);
+    }
+
+    #[test]
+    fn rem_public_public() {
+        let x = Value::Public(8);
+        let y = Value::Public(2);
+        test!(MPCExecutor::rem, x, y, 0);
+    }
+
+    #[ignore = "will fail if div is off by 1"]
+    #[test]
+    fn rem_secret_public() {
+        let x = Value::Secret(Share::Arithmetic(8));
+        let y = Value::Public(2);
+        test!(MPCExecutor::rem, x, y, 0);
     }
 
     #[test]

@@ -1,13 +1,3 @@
-# riscMPC
-
-General-purpose multi-party computation from RISC-V assembly.
-
-## Example: mean of salaries
-
-This examples shows how to compute the mean salary without revealing salaries to the other party.
-The code for both parties can be found in the [examples](examples) directory.
-
-```rust
 use risc_mpc::{PartyBuilder, Register, Result, Share, TcpChannel, Value, PARTY_0, U64_BYTES};
 
 fn main() -> Result<()> {
@@ -73,39 +63,3 @@ fn main() -> Result<()> {
     println!("mean = {mean}");
     Ok(())
 }
-```
-
-To run the exmaple, start both parties with the following commands:
-
-```bash
-RUST_LOG=info cargo run --release --example mean_salary_party0
-RUST_LOG=info cargo run --release --example mean_salary_party1
-```
-
-## Install
-
-To compile and run riscMPC, you need to install the Rust toolchain using [rustup](https://www.rust-lang.org/tools/install)(recommended).
-You should now have access to `cargo` and can build riscMPC using the following command:
-
-```bash
-cargo build --release
-```
-
-Now you can add it as a local dependcy to a new Rust application and start using riscMPC.
-
-## Documentation
-
-To generate and view docs run the following command:
-
-```bash
-cargo doc --no-deps --open
-```
-
-or
-
-```bash
-cargo doc --no-deps --document-private-items --open
-```
-
-to also generate docs for private modules
-

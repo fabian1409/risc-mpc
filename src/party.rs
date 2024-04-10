@@ -666,6 +666,12 @@ impl<C: Channel> Party<C> {
                     self.update_pc(address, 0);
                     self.call_depth += 1;
                 }
+                Instruction::TAIL { label } => {
+                    // same as call but dont write return address to x1
+                    let address = self.offset(label, &text_labels, &program.0)?;
+                    self.update_pc(address, 0);
+                    self.call_depth += 1;
+                }
                 Instruction::Label(_) => {}
             };
             self.update_pc(self.pc, 1);
@@ -865,6 +871,90 @@ mod tests {
 
         assert_eq!(intersection0, intersection);
         assert_eq!(intersection1, intersection);
+
+        Ok(())
+    }
+
+    #[test]
+    fn mean_salary() -> Result<()> {
+        // https://godbolt.org/z/Pc41azGne
+        let program = "
+            example::mean:
+                    addi    sp, sp, -16
+                    sd      ra, 8(sp)
+                    li      a6, 0
+                    slli    a5, a1, 3
+                    beqz    a5, .LBB0_2
+            .LBB0_1:
+                    ld      a4, 0(a0)
+                    addi    a0, a0, 8
+                    add     a6, a6, a4
+                    addi    a5, a5, -8
+                    bnez    a5, .LBB0_1
+            .LBB0_2:
+                    slli    a0, a3, 3
+                    beqz    a0, .LBB0_4
+            .LBB0_3:
+                    ld      a4, 0(a2)
+                    addi    a2, a2, 8
+                    add     a6, a6, a4
+                    addi    a0, a0, -8
+                    bnez    a0, .LBB0_3
+            .LBB0_4:
+                    add     a1, a1, a3
+                    beqz    a1, .LBB0_6
+                    divu    a0, a6, a1
+                    ld      ra, 8(sp)
+                    addi    sp, sp, 16
+                    ret
+            .LBB0_6:
+        ";
+
+        let (ch0, ch1) = create_channels();
+
+        let salaries0 = [1000, 2500, 1900, 3000, 2750, 5000];
+        let salaries1 = [1200, 3500, 900, 4000, 1750, 1000];
+        let salaries0_len = salaries0.len() as u64;
+        let salaries1_len = salaries1.len() as u64;
+        let mean =
+            salaries0.iter().chain(salaries1.iter()).sum::<u64>() / (salaries0_len + salaries1_len);
+
+        let base_address = 0x0;
+        let salaries0_address = base_address;
+        let salaries1_address = base_address + U64_BYTES * salaries0_len;
+
+        let run = move |id: usize,
+                        ch: ThreadChannel,
+                        salaries: &[u64],
+                        salaries_address: u64|
+              -> Result<u64> {
+            let mut party = PartyBuilder::new(id, ch)
+                .register(Register::x10, Value::Public(salaries0_address))
+                .register(Register::x11, Value::Public(salaries0_len))
+                .register(Register::x12, Value::Public(salaries1_address))
+                .register(Register::x13, Value::Public(salaries1_len))
+                .address_range(
+                    salaries_address,
+                    salaries
+                        .iter()
+                        .map(|x| Value::Secret(Share::Arithmetic(*x)))
+                        .collect(),
+                )?
+                .build()?;
+
+            party.execute(&program.parse()?)?;
+
+            party.register(Register::x10)
+        };
+
+        let party0 = thread::spawn(move || run(PARTY_0, ch0, &salaries0, salaries0_address));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1, &salaries1, salaries1_address));
+
+        let mean0 = party0.join().unwrap().unwrap();
+        let mean1 = party1.join().unwrap().unwrap();
+
+        assert!(mean0.abs_diff(mean) <= 1);
+        assert!(mean1.abs_diff(mean) <= 1);
 
         Ok(())
     }

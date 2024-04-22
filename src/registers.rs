@@ -141,7 +141,7 @@ impl Registers {
     }
 
     /// Get [`Value`] in given [`Register`].
-    pub fn get(&mut self, register: Register) -> Value {
+    pub fn get(&self, register: Register) -> Value {
         self.registers[register as usize]
     }
 

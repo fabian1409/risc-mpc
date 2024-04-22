@@ -29,6 +29,15 @@ pub enum Value {
     Public(u64),
 }
 
+impl Value {
+    pub fn as_public(&self) -> Option<u64> {
+        match self {
+            Value::Secret(_) => None,
+            Value::Public(x) => Some(*x),
+        }
+    }
+}
+
 impl From<Value> for u64 {
     fn from(value: Value) -> Self {
         match value {

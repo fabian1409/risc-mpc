@@ -21,7 +21,7 @@ impl Memory {
     }
 
     /// Loads the [`Value`] from the given [`Address`].
-    pub fn load(&mut self, address: Address) -> Result<Value> {
+    pub fn load(&self, address: Address) -> Result<Value> {
         if address % U64_BYTES == 0 {
             if let Some(value) = self.memory.get(address) {
                 Ok(*value)

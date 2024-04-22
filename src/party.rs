@@ -281,19 +281,16 @@ impl<C: Channel> Party<C> {
         label: &Label,
         text_labels: &HashMap<String, u64>,
         program: &[Instruction],
-    ) -> Result<u64> {
+    ) -> Option<u64> {
         match label {
-            Label::Text(name) => text_labels
-                .get(name.trim_end_matches("@plt"))
-                .copied()
-                .ok_or(Error::UnknownLabel(label.to_string())),
+            Label::Text(name) => text_labels.get(name.trim_end_matches("@plt")).copied(),
             Label::Numeric(name) => {
                 if name.ends_with('f') {
                     for (i, instruction) in program.iter().enumerate().skip(self.pc as usize) {
                         if let Instruction::Label(Label::Numeric(other)) = instruction {
                             if name.strip_suffix('f').unwrap().eq(other) {
                                 debug!("found label = {} at pc = {}", other, i);
-                                return Ok(i as u64);
+                                return Some(i as u64);
                             }
                         }
                     }
@@ -303,12 +300,12 @@ impl<C: Channel> Party<C> {
                         if let Instruction::Label(Label::Numeric(other)) = instruction {
                             if name.strip_suffix('b').unwrap().eq(other) {
                                 debug!("found label = {} at pc = {}", other, i);
-                                return Ok(i as u64);
+                                return Some(i as u64);
                             }
                         }
                     }
                 }
-                Err(Error::UnknownLabel(label.to_string()))
+                None
             }
         }
     }
@@ -442,14 +439,18 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::JAL { rd, label } => {
                     self.registers.set(*rd, Value::Public(self.pc + 1));
-                    let address = self.offset(label, &text_labels, &program.0)?;
+                    let address = self
+                        .offset(label, &text_labels, &program.0)
+                        .ok_or(Error::UnknownLabel(label.to_string()))?;
                     self.update_pc(address, 0);
+                    self.call_depth += 1;
                 }
                 Instruction::JALR { rd, rs1, offset } => {
                     self.registers.set(*rd, Value::Public(self.pc + 1));
                     let base = self.registers.get(*rs1);
                     if let Value::Public(base) = base {
                         self.update_pc(base, *offset);
+                        self.call_depth += 1;
                     } else {
                         return Err(Error::SecretValueAsAddress);
                     }
@@ -460,7 +461,9 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, rs2)?;
                     if eq {
                         debug!("beq taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -470,7 +473,9 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, rs2)?;
                     if !eq {
                         debug!("bne taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -480,7 +485,9 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, rs2)?;
                     if lt {
                         debug!("blt taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -490,7 +497,9 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, rs2)?;
                     if !lt {
                         debug!("bge taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -567,7 +576,9 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, Value::Public(0))?;
                     if eq {
                         debug!("beqz taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -576,7 +587,9 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, Value::Public(0))?;
                     if !eq {
                         debug!("bnez taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -585,7 +598,9 @@ impl<C: Channel> Party<C> {
                     let le = self.executor.ble(rs1, Value::Public(0))?;
                     if le {
                         debug!("blez taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -594,7 +609,9 @@ impl<C: Channel> Party<C> {
                     let ge = self.executor.bge(rs1, Value::Public(0))?;
                     if ge {
                         debug!("bgez taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -603,7 +620,9 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, Value::Public(0))?;
                     if lt {
                         debug!("bltz taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -612,7 +631,9 @@ impl<C: Channel> Party<C> {
                     let gt = self.executor.bgt(rs1, Value::Public(0))?;
                     if gt {
                         debug!("bgtz taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -622,7 +643,9 @@ impl<C: Channel> Party<C> {
                     let gt = self.executor.bgt(rs1, rs2)?;
                     if gt {
                         debug!("bgt taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
@@ -632,43 +655,55 @@ impl<C: Channel> Party<C> {
                     let le = self.executor.ble(rs1, rs2)?;
                     if le {
                         debug!("ble taking branch");
-                        let address = self.offset(label, &text_labels, &program.0)?;
+                        let address = self
+                            .offset(label, &text_labels, &program.0)
+                            .ok_or(Error::UnknownLabel(label.to_string()))?;
                         self.update_pc(address, 0);
                     }
                 }
                 Instruction::J { label } => {
                     debug!("jump to {label}");
-                    let address = self.offset(label, &text_labels, &program.0)?;
+                    let address = self
+                        .offset(label, &text_labels, &program.0)
+                        .ok_or(Error::UnknownLabel(label.to_string()))?;
                     self.update_pc(address, 0);
                 }
                 Instruction::JR { rs1 } => {
-                    if let Value::Public(address) = self.registers.get(*rs1) {
-                        debug!("jump to {address}");
-                        self.update_pc(address, 0);
-                    } else {
-                        return Err(Error::SecretValueAsAddress);
-                    }
+                    let address = self
+                        .registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    debug!("jump to {address}");
+                    self.update_pc(address, 0);
                 }
                 Instruction::RET => {
-                    if let Value::Public(address) = self.registers.get(Register::x1) {
-                        // ignore trailing ret if no calls were made
-                        if self.call_depth > 0 {
-                            self.update_pc(address, 0);
-                            self.call_depth -= 1;
-                        }
+                    let address = self
+                        .registers
+                        .get(Register::x1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    // ignore trailing ret if no calls were made
+                    if self.call_depth > 0 {
+                        self.update_pc(address, 0);
+                        self.call_depth -= 1;
                     } else {
-                        return Err(Error::SecretValueAsAddress);
+                        return Ok(());
                     }
                 }
                 Instruction::CALL { label } => {
+                    let address = self
+                        .offset(label, &text_labels, &program.0)
+                        .ok_or(Error::UnknownLabel(label.to_string()))?;
                     self.registers.set(Register::x1, Value::Public(self.pc));
-                    let address = self.offset(label, &text_labels, &program.0)?;
                     self.update_pc(address, 0);
                     self.call_depth += 1;
                 }
                 Instruction::TAIL { label } => {
                     // same as call but dont write return address to x1
-                    let address = self.offset(label, &text_labels, &program.0)?;
+                    let address = self
+                        .offset(label, &text_labels, &program.0)
+                        .ok_or(Error::UnknownLabel(label.to_string()))?;
                     self.update_pc(address, 0);
                     self.call_depth += 1;
                 }

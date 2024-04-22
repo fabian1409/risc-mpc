@@ -120,3 +120,52 @@ fn hash(x: &Integer) -> Integer {
     let digest = Sha3_512::digest(x.to_digits(Order::Msf));
     Integer::from_digits(digest.as_slice(), Order::Msf)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{OTReceiver, OTSender};
+    use crate::{channel::Message, ThreadChannel};
+    use rug::Integer;
+    use std::{
+        sync::mpsc::{self, Receiver, Sender},
+        thread,
+    };
+
+    fn create_channels() -> (ThreadChannel, ThreadChannel) {
+        let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let (tx1, rx1): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let ch0 = ThreadChannel::new(tx0, rx1);
+        let ch1 = ThreadChannel::new(tx1, rx0);
+        (ch0, ch1)
+    }
+
+    #[test]
+    fn test_ot() {
+        let (mut ch0, mut ch1) = create_channels();
+        let inputs = [
+            (Integer::from(42), Integer::from(12)),
+            (Integer::from(3), Integer::from(5)),
+        ];
+        let choices = [true, false];
+        let chosen = inputs
+            .iter()
+            .zip(choices.iter())
+            .map(|((m0, m1), c)| if *c { m1 } else { m0 })
+            .cloned()
+            .collect::<Vec<Integer>>();
+
+        let sender = thread::spawn(move || {
+            let mut sender = OTSender::new();
+            sender.send(&mut ch0, &inputs).unwrap();
+        });
+        let receiver = thread::spawn(move || -> Vec<Integer> {
+            let mut receiver = OTReceiver::new();
+            receiver.receive(&mut ch1, &choices).unwrap()
+        });
+
+        sender.join().unwrap();
+        let received = receiver.join().unwrap();
+        println!("received = {received:?}");
+        assert_eq!(received, chosen);
+    }
+}

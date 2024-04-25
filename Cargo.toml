@@ -16,7 +16,7 @@ bit = "0.1.1"
 thiserror = "1.0.56"
 intmap = "2.0.0"
 curve25519-dalek = { version = "4.1.2", features = ["serde", "rand_core"] }
-smol = "2.0.0"
+tokio = { version = "1.37.0", features = ["rt"] }
 tiny-keccak = { version = "2.0.2", features = ["k12"] }
 
 [dev-dependencies]

@@ -13,6 +13,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
     time::Duration,
 };
+use tokio::runtime::Runtime;
 use tsyncp::channel::{channel_on, channel_to, BincodeChannel};
 
 /// [`Message`] used by [`Channel`].
@@ -81,21 +82,27 @@ impl Channel for ThreadChannel {
 #[derive(Debug)]
 pub struct TcpChannel {
     ch: BincodeChannel<Message>,
+    rt: Runtime,
 }
 
 impl TcpChannel {
     /// Create a new [`TcpChannel`] for the party with `id`.
     /// Connect to other party with given [`SocketAddr`].
     pub fn new(id: usize, addr: SocketAddr) -> Result<TcpChannel> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build runtime");
+
         let ch: BincodeChannel<Message> = if id == PARTY_0 {
-            smol::block_on(
+            rt.block_on(
                 channel_on(addr)
                     .retry(Duration::from_millis(500), 100)
                     .set_tcp_reuseaddr(true)
                     .set_tcp_nodelay(true),
             )?
         } else {
-            smol::block_on(
+            rt.block_on(
                 channel_to(addr)
                     .retry(Duration::from_millis(500), 100)
                     .set_tcp_reuseaddr(true)
@@ -103,17 +110,19 @@ impl TcpChannel {
             )?
         };
 
-        Ok(TcpChannel { ch })
+        Ok(TcpChannel { ch, rt })
     }
 }
 
 impl Channel for TcpChannel {
     fn send(&mut self, msg: Message) -> Result<()> {
-        Ok(smol::block_on(self.ch.send(msg)).map_err(Box::from)?)
+        Ok(self.rt.block_on(self.ch.send(msg)).map_err(Box::from)?)
     }
 
     fn recv(&mut self) -> Result<Message> {
-        Ok(smol::block_on(self.ch.recv())
+        Ok(self
+            .rt
+            .block_on(self.ch.recv())
             .expect("received None")
             .map_err(Box::from)?)
     }

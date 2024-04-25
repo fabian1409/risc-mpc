@@ -1,7 +1,10 @@
 use crate::{
     channel::{Channel, Message},
     error::{Error, Result},
-    ot::{OTReceiver, OTSender},
+    ot::{
+        block::Block,
+        naor_pinkas::{OTReceiver, OTSender},
+    },
     party::PARTY_0,
     triple_provider::TripleProvider,
     Share, Value,
@@ -9,7 +12,6 @@ use crate::{
 use bit::BitIndex;
 use log::debug;
 use rand::Rng;
-use rug::Integer;
 
 /// Number of AND triples needed per secret `<`, `>`, `<=`, `>=`.
 /// Secret `==` and `!=` need `2 * CMP_AND_TRIPLES`.
@@ -46,6 +48,8 @@ pub fn shares_to_x(shares: (Share, Share)) -> Result<u64> {
 pub struct MPCExecutor<C: Channel> {
     id: usize,
     ch: C,
+    sender: OTSender,
+    receiver: OTReceiver,
     triple_provider: TripleProvider,
 }
 
@@ -55,6 +59,8 @@ impl<C: Channel> MPCExecutor<C> {
         MPCExecutor {
             id,
             ch,
+            sender: OTSender::new(),
+            receiver: OTReceiver::new(),
             triple_provider,
         }
     }
@@ -179,22 +185,20 @@ impl<C: Channel> MPCExecutor<C> {
                         .wrapping_sub(*rs.get(i).unwrap());
                     let si1: u64 =
                         (x_b.bit(i) as u64 * 2u64.pow(i as u32)).wrapping_sub(*rs.get(i).unwrap());
-                    inputs.push((Integer::from(si0), Integer::from(si1)));
+                    inputs.push((Block::from(si0), Block::from(si1)));
                 }
-                let mut sender = OTSender::new();
-                sender.send(&mut self.ch, &inputs)?;
+                self.sender.send(&mut self.ch, &inputs)?;
                 x_a = !x_a;
                 x_a += 1;
                 debug!("id = {} x_a = {x_a}", self.id);
                 Ok(Value::Secret(Share::Arithmetic(x_a)))
             } else {
                 let mut x_a = 0u64;
-                let mut receiver = OTReceiver::new();
                 let mut choices = Vec::new();
                 for i in 0..64 {
                     choices.push(x_b.bit(i));
                 }
-                let res = receiver.receive(&mut self.ch, &choices)?;
+                let res = self.receiver.receive(&mut self.ch, &choices)?;
                 for e in res {
                     x_a = x_a.wrapping_add(e.try_into().unwrap());
                 }

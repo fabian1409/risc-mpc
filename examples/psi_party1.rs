@@ -6,9 +6,9 @@ use std::collections::BTreeSet;
 fn main() -> Result<()> {
     env_logger::init();
 
-    // https://godbolt.org/z/98jq1r3j1
+    // https://godbolt.org/z/zjcPTzr8W
     let program = "
-        example::psi:
+        psi:
                 li      a6, 0
                 li      a7, 0
                 li      t1, 0

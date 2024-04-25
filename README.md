@@ -13,9 +13,9 @@ use risc_mpc::{PartyBuilder, Register, Result, Share, TcpChannel, Value, PARTY_0
 fn main() -> Result<()> {
     env_logger::init();
 
-    // https://godbolt.org/z/Pc41azGne
+    // https://godbolt.org/z/nGWWb5bbn
     let program = "
-        example::mean:
+        mean:
                 addi    sp, sp, -16
                 sd      ra, 8(sp)
                 li      a6, 0

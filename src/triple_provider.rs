@@ -3,13 +3,15 @@
 use crate::{
     channel::Channel,
     error::{Error, Result},
-    ot::{OTReceiver, OTSender},
+    ot::{
+        block::Block,
+        naor_pinkas::{OTReceiver, OTSender},
+    },
     party::{PARTY_0, PARTY_1},
 };
 use bit::BitIndex;
 use log::{debug, info};
 use rand::Rng;
-use rug::Integer;
 use std::time::Instant;
 
 pub type Triple = (u64, u64, u64);
@@ -17,6 +19,8 @@ pub type Triple = (u64, u64, u64);
 #[derive(Debug)]
 pub struct TripleProvider {
     id: usize,
+    sender: OTSender,
+    receiver: OTReceiver,
     mul_triple_pool: Vec<(u64, u64, u64)>,
     and_triple_pool: Vec<(u64, u64, u64)>,
 }
@@ -25,6 +29,8 @@ impl TripleProvider {
     pub fn new(id: usize) -> TripleProvider {
         TripleProvider {
             id,
+            sender: OTSender::new(),
+            receiver: OTReceiver::new(),
             mul_triple_pool: Vec::new(),
             and_triple_pool: Vec::new(),
         }
@@ -84,32 +90,29 @@ impl TripleProvider {
     ) -> Result<u64> {
         let mut rng = rand::thread_rng();
         if self.id == sender {
-            let mut sender = OTSender::new();
             let mut c0 = 0u64;
             let mut ss = Vec::new();
             for _ in 0..64 {
                 let tmp = rng.gen();
                 c0 = c0.wrapping_add(tmp);
-                ss.push(Integer::from(tmp));
+                ss.push(Block::from(tmp));
             }
             let c0 = -(c0 as i128) as u64;
             let mut inputs = Vec::new();
             for (i, s) in ss.into_iter().enumerate() {
                 inputs.push((
-                    s.clone(),
-                    (2u128.pow(i as u32) * Integer::from(a_share) + s)
-                        % Integer::from(2u128.pow(64)),
+                    s,
+                    (2u128.pow(i as u32) * Block::from(a_share) + s) % Block::from(2u128.pow(64)),
                 ));
             }
-            sender.send(ch, &inputs)?;
+            self.sender.send(ch, &inputs)?;
             Ok(c0)
         } else {
-            let mut receiver = OTReceiver::new();
             let mut choices = Vec::new();
             for i in 0..64 {
                 choices.push(b_share.bit(i));
             }
-            let res = receiver.receive(ch, &choices)?;
+            let res = self.receiver.receive(ch, &choices)?;
             let mut c1 = 0u64;
             for e in res {
                 c1 = c1.wrapping_add(e.try_into().unwrap());
@@ -144,10 +147,9 @@ impl TripleProvider {
                 let xi1: bool = rng.gen();
                 b.set_bit(i, xi0 ^ xi1);
                 v.set_bit(i, xi0);
-                inputs.push((Integer::from(xi0), Integer::from(xi1)));
+                inputs.push((Block::from(xi0), Block::from(xi1)));
             }
-            let mut sender = OTSender::new();
-            sender.send(ch, &inputs)?;
+            self.sender.send(ch, &inputs)?;
             Ok((b, v))
         } else {
             let a: u64 = rng.gen();
@@ -155,11 +157,10 @@ impl TripleProvider {
             for i in 0..64 {
                 choices.push(a.bit(i));
             }
-            let mut receiver = OTReceiver::new();
-            let xa = receiver.receive(ch, &choices)?;
+            let xa = self.receiver.receive(ch, &choices)?;
             let mut u = 0u64;
             for (i, x) in xa.iter().enumerate() {
-                u.set_bit(i, *x != Integer::ZERO);
+                u.set_bit(i, *x != 0);
             }
             Ok((a, u))
         }

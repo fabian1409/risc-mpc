@@ -16,15 +16,17 @@ mod memory;
 mod mpc_executor;
 mod ot;
 mod party;
+mod program;
 mod registers;
 mod triple_provider;
 mod types;
 
 pub use channel::{TcpChannel, ThreadChannel};
 pub use error::Result;
-pub use instruction::{Instruction, Label, Program};
+pub use instruction::{Instruction, Label};
 pub use memory::{Address, U64_BYTES};
 pub use mpc_executor::CMP_AND_TRIPLES;
 pub use party::{Party, PartyBuilder, PARTY_0, PARTY_1};
+pub use program::Program;
 pub use registers::Register;
 pub use types::{Share, Value};

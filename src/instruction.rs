@@ -1,7 +1,4 @@
-use crate::{
-    error::{Error, Result},
-    registers::Register,
-};
+use crate::{error::Error, registers::Register};
 use std::{fmt::Display, str::FromStr};
 
 /// [`Label`] represents either a [`Text`] or [`Numeric`] label.
@@ -562,23 +559,5 @@ impl Display for Instruction {
             Instruction::TAIL { label } => write!(f, "tail {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
         }
-    }
-}
-
-/// [`Program`] wrapper around [`Vec<Instruction>`]
-#[derive(Debug, PartialEq, Eq)]
-pub struct Program(pub Vec<Instruction>);
-
-impl FromStr for Program {
-    type Err = Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let instructions = s
-            .trim()
-            .lines()
-            .filter(|l| !l.starts_with('#') && !l.is_empty())
-            .map(|l| l.trim().parse())
-            .collect::<Result<Vec<Instruction>>>()?;
-        Ok(Program(instructions))
     }
 }

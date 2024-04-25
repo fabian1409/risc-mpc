@@ -14,10 +14,6 @@ pub enum Error {
     ParseIntError(#[from] std::num::ParseIntError),
     #[error("invalid register {0}")]
     ParseRegisterError(String),
-    #[error("invalid party id {0}")]
-    InvalidPartyId(usize),
-    #[error(transparent)]
-    ChannelError(#[from] crate::channel::error::Error),
     #[error("tried to divide by 0")]
     DivByZero,
     #[error("failed to get triple")]
@@ -32,6 +28,12 @@ pub enum Error {
     AddressNotAligned(u64),
     #[error("unknown label {0}")]
     UnknownLabel(String),
+    #[error(transparent)]
+    ChannelBuilderError(#[from] tsyncp::channel::builder::errors::BuilderError),
+    #[error(transparent)]
+    ChannelError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("received unexpected message")]
+    UnexpectedMessage,
 }
 
 /// [`Result`] type for riscMPC.

@@ -661,7 +661,7 @@ mod tests {
     use crate::{
         channel::{Message, ThreadChannel},
         party::PARTY_1,
-        Result, Share, CMP_AND_TRIPLES, U64_BYTES,
+        Result, Share, U64_BYTES,
     };
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {

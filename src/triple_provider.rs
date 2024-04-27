@@ -1,10 +1,7 @@
-#![allow(dead_code, unused_imports)]
-
 use crate::{
     channel::Channel,
-    error::{Error, Result},
+    error::Result,
     ot::{
-        // chou_orlandi::{OTReceiver, OTSender},
         alsz::{OTExtReceiver, OTExtSender},
         utils::block::Block,
     },

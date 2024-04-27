@@ -158,7 +158,7 @@ impl<C: Channel> PartyBuilder<C> {
             self.send_secret_inputs()?;
         }
 
-        let mut triple_provider = TripleProvider::new(self.id);
+        let mut triple_provider = TripleProvider::new(self.id, &mut self.ch)?;
         if self.n_mul_triples > 0 || self.n_and_triples > 0 {
             triple_provider.setup(&mut self.ch, self.n_mul_triples, self.n_and_triples)?;
         }
@@ -169,7 +169,7 @@ impl<C: Channel> PartyBuilder<C> {
             memory: self.memory,
             pc: 0,
             call_depth: 0,
-            executor: MPCExecutor::new(self.id, self.ch, triple_provider),
+            executor: MPCExecutor::new(self.id, self.ch, triple_provider)?,
         })
     }
 }
@@ -659,18 +659,10 @@ mod tests {
 
     use super::{PartyBuilder, Register, Value, PARTY_0};
     use crate::{
-        channel::{Message, MockChannel, ThreadChannel},
+        channel::{Message, ThreadChannel},
         party::PARTY_1,
-        Result, Share, U64_BYTES,
+        Result, Share, CMP_AND_TRIPLES, U64_BYTES,
     };
-
-    fn mock_channel() -> MockChannel {
-        let mut ch = MockChannel::new();
-        ch.expect_send().returning(|_| Ok(()));
-        ch.expect_recv()
-            .returning(|| Ok(Message::SecretInputs(Vec::new())));
-        ch
-    }
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
         let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
@@ -696,16 +688,26 @@ mod tests {
                     bgeu    a3, a2, .LBB0_1
             .LBB0_2:
                     ret
-        "
-        .parse()?;
+        ";
 
-        let mut party = PartyBuilder::new(PARTY_0, mock_channel())
-            .register(Register::x10, Value::Public(5))
-            .build()?;
-        party.execute(&program)?;
-        let res = party.register(Register::x10)?;
+        let (ch0, ch1) = create_channels();
+        let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
+            let mut party = PartyBuilder::new(id, ch)
+                .register(Register::x10, Value::Public(5))
+                .build()?;
+            party.execute(&program.parse()?)?;
+            party.register(Register::x10)
+        };
 
-        assert_eq!(res, 120); // 5!
+        let party0 = thread::spawn(move || run(PARTY_0, ch0));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1));
+
+        let res0 = party0.join().unwrap().unwrap();
+        let res1 = party1.join().unwrap().unwrap();
+
+        assert_eq!(res0, 120); // 5!
+        assert_eq!(res1, 120);
+
         Ok(())
     }
 
@@ -737,16 +739,26 @@ mod tests {
                     ld      s2, 0(sp)
                     addi    sp, sp, 32
                     ret
-        "
-        .parse()?;
+        ";
 
-        let mut party = PartyBuilder::new(PARTY_0, mock_channel())
-            .register(Register::x10, Value::Public(10))
-            .build()?;
-        party.execute(&program)?;
-        let res = party.register(Register::x10)?;
+        let (ch0, ch1) = create_channels();
+        let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
+            let mut party = PartyBuilder::new(id, ch)
+                .register(Register::x10, Value::Public(10))
+                .build()?;
+            party.execute(&program.parse()?)?;
+            party.register(Register::x10)
+        };
 
-        assert_eq!(res, 55); // fib(10)
+        let party0 = thread::spawn(move || run(PARTY_0, ch0));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1));
+
+        let res0 = party0.join().unwrap().unwrap();
+        let res1 = party1.join().unwrap().unwrap();
+
+        assert_eq!(res0, 55); // fib(10)
+        assert_eq!(res1, 55);
+
         Ok(())
     }
 

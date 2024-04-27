@@ -1,6 +1,7 @@
-// https://github.com/GaloisInc/swanky/blob/master/ocelot/src/ot/chou_orlandi.rs
+//! Implementation of the Chou-Orlandi oblivious transfer protocol (cf. <https://eprint.iacr.org/2015/267>).
+//! Based on <https://github.com/GaloisInc/swanky/blob/master/ocelot/src/ot/chou_orlandi.rs>.
 
-use super::block::{hash_pt, Block};
+use super::utils::block::{hash_pt, Block};
 use crate::{
     channel::{Channel, Message},
     error::{Error, Result},
@@ -113,7 +114,7 @@ impl fmt::Debug for OTReceiver {
 #[cfg(test)]
 mod tests {
     use super::{OTReceiver, OTSender};
-    use crate::{channel::Message, ot::block::Block, ThreadChannel};
+    use crate::{channel::Message, ot::utils::block::Block, ThreadChannel};
     use rand::random;
     use std::{
         sync::mpsc::{self, Receiver, Sender},

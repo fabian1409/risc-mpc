@@ -1,6 +1,7 @@
-// https://github.com/GaloisInc/swanky/blob/master/ocelot/src/ot/naor_pinkas.rs
+//! Implementation of the Naor-Pinkas oblivious transfer protocol (cf. <https://dl.acm.org/citation.cfm?id=365502>).
+//! Based on <https://github.com/GaloisInc/swanky/blob/master/ocelot/src/ot/naor_pinkas.rs>.
 
-use super::block::{hash_pt, Block};
+use super::utils::block::{hash_pt, Block};
 use crate::{
     channel::{Channel, Message},
     error::{Error, Result},
@@ -108,7 +109,7 @@ impl OTReceiver {
 #[cfg(test)]
 mod tests {
     use super::{OTReceiver, OTSender};
-    use crate::{channel::Message, ot::block::Block, ThreadChannel};
+    use crate::{channel::Message, ot::utils::block::Block, ThreadChannel};
     use rand::random;
     use std::{
         sync::mpsc::{self, Receiver, Sender},

@@ -1,12 +1,10 @@
 use crate::{
     error::Result,
-    ot::block::Block,
+    ot::utils::block::Block,
     party::{Location, PARTY_0},
     Share,
 };
 use curve25519_dalek::RistrettoPoint;
-#[cfg(test)]
-use mockall::*;
 use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
@@ -23,6 +21,7 @@ pub enum Message {
     SecretInputs(Vec<(Location, Share)>),
     Point(RistrettoPoint),
     Block(Block),
+    Bytes(Vec<u8>),
 }
 
 impl Message {
@@ -46,10 +45,16 @@ impl Message {
             _ => None,
         }
     }
+
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Message::Bytes(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
 }
 
 /// [`Channel`] trait for communication between parties.
-#[cfg_attr(test, automock)]
 pub trait Channel {
     fn send(&mut self, msg: Message) -> Result<()>;
     fn recv(&mut self) -> Result<Message>;

@@ -2,8 +2,8 @@ use crate::{
     channel::{Channel, Message},
     error::{Error, Result},
     ot::{
-        block::Block,
-        naor_pinkas::{OTReceiver, OTSender},
+        chou_orlandi::{OTReceiver, OTSender},
+        utils::block::Block,
     },
     party::PARTY_0,
     triple_provider::TripleProvider,
@@ -55,14 +55,23 @@ pub struct MPCExecutor<C: Channel> {
 
 impl<C: Channel> MPCExecutor<C> {
     /// Create new [`MPCExecutor`].
-    pub fn new(id: usize, ch: C, triple_provider: TripleProvider) -> MPCExecutor<C> {
-        MPCExecutor {
+    pub fn new(id: usize, mut ch: C, triple_provider: TripleProvider) -> Result<MPCExecutor<C>> {
+        let (sender, receiver) = if id == PARTY_0 {
+            let sender = OTSender::new(&mut ch)?;
+            let receiver = OTReceiver::new(&mut ch)?;
+            (sender, receiver)
+        } else {
+            let receiver = OTReceiver::new(&mut ch)?;
+            let sender = OTSender::new(&mut ch)?;
+            (sender, receiver)
+        };
+        Ok(MPCExecutor {
             id,
             ch,
-            sender: OTSender::new(),
-            receiver: OTReceiver::new(),
+            sender,
+            receiver,
             triple_provider,
-        }
+        })
     }
 
     /// Reveal the given [`Share`].
@@ -579,8 +588,9 @@ mod tests {
 
     macro_rules! test {
         ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
-            let run = |id: usize, ch: ThreadChannel, x: Value, y: Value, expected| {
-                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+            let run = |id: usize, mut ch: ThreadChannel, x: Value, y: Value, expected| {
+                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
+                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
                 let value = $f(&mut executor, x, y).unwrap();
                 let res = match value {
                     Value::Secret(share) => executor.reveal(share).unwrap(),
@@ -597,8 +607,9 @@ mod tests {
             party1.join().unwrap();
         }};
         ($f:expr, $x:expr, $expected:expr) => {{
-            let run = |id: usize, ch: ThreadChannel, x: Value, expected| {
-                let mut executor = MPCExecutor::new(id, ch, TripleProvider::new(id));
+            let run = |id: usize, mut ch: ThreadChannel, x: Value, expected| {
+                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
+                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
                 let value = $f(&mut executor, x).unwrap();
                 let res = match value {
                     Value::Secret(share) => executor.reveal(share).unwrap(),

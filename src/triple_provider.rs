@@ -4,8 +4,9 @@ use crate::{
     channel::Channel,
     error::{Error, Result},
     ot::{
-        block::Block,
-        naor_pinkas::{OTReceiver, OTSender},
+        // chou_orlandi::{OTReceiver, OTSender},
+        alsz::{OTExtReceiver, OTExtSender},
+        utils::block::Block,
     },
     party::{PARTY_0, PARTY_1},
 };
@@ -19,21 +20,30 @@ pub type Triple = (u64, u64, u64);
 #[derive(Debug)]
 pub struct TripleProvider {
     id: usize,
-    sender: OTSender,
-    receiver: OTReceiver,
+    sender: OTExtSender,
+    receiver: OTExtReceiver,
     mul_triple_pool: Vec<(u64, u64, u64)>,
     and_triple_pool: Vec<(u64, u64, u64)>,
 }
 
 impl TripleProvider {
-    pub fn new(id: usize) -> TripleProvider {
-        TripleProvider {
+    pub fn new<C: Channel>(id: usize, ch: &mut C) -> Result<TripleProvider> {
+        let (sender, receiver) = if id == PARTY_0 {
+            let sender = OTExtSender::new(ch)?;
+            let receiver = OTExtReceiver::new(ch)?;
+            (sender, receiver)
+        } else {
+            let receiver = OTExtReceiver::new(ch)?;
+            let sender = OTExtSender::new(ch)?;
+            (sender, receiver)
+        };
+        Ok(TripleProvider {
             id,
-            sender: OTSender::new(),
-            receiver: OTReceiver::new(),
+            sender,
+            receiver,
             mul_triple_pool: Vec::new(),
             and_triple_pool: Vec::new(),
-        }
+        })
     }
 
     pub fn setup<C: Channel>(

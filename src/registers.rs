@@ -1,11 +1,18 @@
-use crate::{error::Error, Value};
+use crate::{
+    error::Error,
+    types::{Integer, Value},
+};
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
 /// Number of integer registers
-const NUM_REGISTERS: usize = 32;
+const NUM_INTEGER_REGISTERS: usize = 32;
+/// Number of float registers
+const NUM_FLOAT_REGISTERS: usize = 32;
+/// Number of registers
+const NUM_REGISTERS: usize = NUM_INTEGER_REGISTERS + NUM_FLOAT_REGISTERS;
 
-/// [`Register`] type to represent the 32 base registers of RISC-V.
+/// [`Register`] type to represent the 32 integer and 32 float registers of RISC-V.
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Register {
@@ -41,6 +48,38 @@ pub enum Register {
     x29,
     x30,
     x31,
+    f0,
+    f1,
+    f2,
+    f3,
+    f4,
+    f5,
+    f6,
+    f7,
+    f8,
+    f9,
+    f10,
+    f11,
+    f12,
+    f13,
+    f14,
+    f15,
+    f16,
+    f17,
+    f18,
+    f19,
+    f20,
+    f21,
+    f22,
+    f23,
+    f24,
+    f25,
+    f26,
+    f27,
+    f28,
+    f29,
+    f30,
+    f31,
 }
 
 impl FromStr for Register {
@@ -80,6 +119,39 @@ impl FromStr for Register {
             "x29" | "t4" => Ok(Self::x29),
             "x30" | "t5" => Ok(Self::x30),
             "x31" | "t6" => Ok(Self::x31),
+            "f0" | "ft0" => Ok(Self::f0),
+            "f1" | "ft1" => Ok(Self::f1),
+            "f2" | "ft2" => Ok(Self::f2),
+            "f3" | "ft3" => Ok(Self::f3),
+            "f4" | "ft4" => Ok(Self::f4),
+            "f5" | "ft5" => Ok(Self::f5),
+            "f6" | "ft6" => Ok(Self::f6),
+            "f7" | "ft7" => Ok(Self::f7),
+            "f8" | "fs0" => Ok(Self::f8),
+            "f9" | "fs1" => Ok(Self::f9),
+            "f10" | "fa0" => Ok(Self::f10),
+            "f11" | "fa1" => Ok(Self::f11),
+            "f12" | "fa2" => Ok(Self::f12),
+            "f13" | "fa3" => Ok(Self::f13),
+            "f14" | "fa4" => Ok(Self::f14),
+            "f15" | "fa5" => Ok(Self::f15),
+            "f16" | "fa6" => Ok(Self::f16),
+            "f17" | "fa7" => Ok(Self::f17),
+            "f18" | "fs2" => Ok(Self::f18),
+            "f19" | "fs3" => Ok(Self::f19),
+            "f20" | "fs4" => Ok(Self::f20),
+            "f21" | "fs5" => Ok(Self::f21),
+            "f22" | "fs6" => Ok(Self::f22),
+            "f23" | "fs7" => Ok(Self::f23),
+            "f24" | "fs8" => Ok(Self::f24),
+            "f25" | "fs9" => Ok(Self::f25),
+            "f26" | "fs10" => Ok(Self::f26),
+            "f27" | "fs11" => Ok(Self::f27),
+            "f28" | "ft8" => Ok(Self::f28),
+            "f29" | "ft9" => Ok(Self::f29),
+            "f30" | "ft10" => Ok(Self::f30),
+            "f31" | "ft11" => Ok(Self::f31),
+
             _ => Err(Error::ParseRegisterError(s.to_owned())),
         }
     }
@@ -120,13 +192,45 @@ impl Display for Register {
             Register::x29 => "t4",
             Register::x30 => "t5",
             Register::x31 => "t6",
+            Register::f0 => "ft0",
+            Register::f1 => "ft1",
+            Register::f2 => "ft2",
+            Register::f3 => "ft3",
+            Register::f4 => "ft4",
+            Register::f5 => "ft5",
+            Register::f6 => "ft6",
+            Register::f7 => "ft7",
+            Register::f8 => "fs0",
+            Register::f9 => "fs1",
+            Register::f10 => "fa0",
+            Register::f11 => "fa1",
+            Register::f12 => "fa2",
+            Register::f13 => "fa3",
+            Register::f14 => "fa4",
+            Register::f15 => "fa5",
+            Register::f16 => "fa6",
+            Register::f17 => "fa7",
+            Register::f18 => "fs2",
+            Register::f19 => "fs3",
+            Register::f20 => "fs4",
+            Register::f21 => "fs5",
+            Register::f22 => "fs6",
+            Register::f23 => "fs7",
+            Register::f24 => "fs8",
+            Register::f25 => "fs9",
+            Register::f26 => "fs10",
+            Register::f27 => "fs11",
+            Register::f28 => "ft8",
+            Register::f29 => "ft9",
+            Register::f30 => "ft10",
+            Register::f31 => "ft11",
         };
         write!(f, "{name}")
     }
 }
 
 /// [`Registers`] holds all register values.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Registers {
     registers: [Value; NUM_REGISTERS],
 }
@@ -136,7 +240,7 @@ impl Registers {
     pub fn new() -> Registers {
         let mut registers = [Value::default(); NUM_REGISTERS];
         // init stack pointer to 8-byte aligned address
-        registers[Register::x2 as usize] = Value::Public(0xffff_ffff_ffff_fff0);
+        registers[Register::x2 as usize] = Integer::Public(0xffff_ffff_ffff_fff0).into();
         Registers { registers }
     }
 

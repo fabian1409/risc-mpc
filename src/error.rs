@@ -34,6 +34,10 @@ pub enum Error {
     ChannelError(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("received unexpected message")]
     UnexpectedMessage,
+    #[error("unexpected value")]
+    UnexpectedValue,
+    #[error("error in fixed-point embedding")]
+    FixedPointEmbeddingError,
 }
 
 /// [`Result`] type for riscMPC.

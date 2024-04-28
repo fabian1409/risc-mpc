@@ -16,7 +16,7 @@ pub fn boolvec_to_u8vec(bv: &[bool]) -> Vec<u8> {
 #[inline]
 pub fn u8vec_to_boolvec(v: &[u8]) -> Vec<bool> {
     let mut bv = Vec::with_capacity(v.len() * 8);
-    for byte in v.iter() {
+    for byte in v {
         for i in 0..8 {
             bv.push((1 << i) & byte != 0);
         }

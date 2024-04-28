@@ -1,4 +1,4 @@
-use risc_mpc::{PartyBuilder, Register, Result, Share, TcpChannel, Value, PARTY_1, U64_BYTES};
+use risc_mpc::{Integer, PartyBuilder, Register, Result, Share, TcpChannel, PARTY_1, U64_BYTES};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -43,22 +43,22 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_1, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_1, ch)
-        .register(Register::x10, Value::Public(0x0)) // salaries0 address
-        .register(Register::x11, Value::Public(k)) // salaries0 length
-        .register(Register::x12, Value::Public(U64_BYTES * k)) // salaries1 address
-        .register(Register::x13, Value::Public(n)) // salaries1 length
+        .register(Register::x10, Integer::Public(0x0).into()) // salaries0 address
+        .register(Register::x11, Integer::Public(k).into()) // salaries0 length
+        .register(Register::x12, Integer::Public(U64_BYTES * k).into()) // salaries1 address
+        .register(Register::x13, Integer::Public(n).into()) // salaries1 length
         .address_range(
             k * U64_BYTES,
             salaries
                 .iter()
-                .map(|x| Value::Secret(Share::Arithmetic(*x)))
+                .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
                 .collect(),
         )?
         .build()?;
 
     party.execute(&program)?;
 
-    let mean = party.register(Register::x10)?;
+    let mean: u64 = party.register(Register::x10)?.try_into()?;
 
     println!("mean = {mean}");
     Ok(())

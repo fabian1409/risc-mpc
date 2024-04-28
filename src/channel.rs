@@ -2,6 +2,7 @@ use crate::{
     error::Result,
     ot::utils::block::Block,
     party::{Location, PARTY_0},
+    types::Value,
     Share,
 };
 use curve25519_dalek::RistrettoPoint;
@@ -18,7 +19,7 @@ use tsyncp::channel::{channel_on, channel_to, BincodeChannel};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     Share(Share),
-    SecretInputs(Vec<(Location, Share)>),
+    SecretInputs(Vec<(Location, Value)>),
     Point(RistrettoPoint),
     Block(Block),
     Bytes(Vec<u8>),

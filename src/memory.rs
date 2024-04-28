@@ -1,6 +1,6 @@
 use crate::{
     error::{Error, Result},
-    Value,
+    types::Value,
 };
 use intmap::IntMap;
 

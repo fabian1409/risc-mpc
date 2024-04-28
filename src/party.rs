@@ -1199,4 +1199,139 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn ascon() -> Result<()> {
+        // https://godbolt.org/z/T6PbP55E6
+        let program = "
+            round:
+                ld      a6, 0(a1)
+                ld      t0, 32(a1)
+                ld      a7, 16(a1)
+                ld      a3, 8(a1)
+                ld      a1, 24(a1)
+                xor     a5, t0, a6
+                xor     a2, a7, a2
+                xor     a6, a2, a3
+                xor     a7, a1, t0
+                not     a4, a3
+                and     a2, a2, a4
+                xor     t2, a2, a5
+                not     a4, a6
+                and     t1, a1, a4
+                not     a4, a1
+                and     a4, t0, a4
+                xor     t3, a4, a6
+                not     a2, a7
+                and     a2, a2, a5
+                xor     a1, a1, a2
+                not     a2, a5
+                and     a2, a2, a3
+                xor     t0, a7, a2
+                xor     a3, a3, t2
+                xor     a2, t1, a3
+                xor     a7, a1, t3
+                xor     a1, t0, t2
+                srli    a6, a1, 9
+                slli    a5, a1, 55
+                or      a5, a5, a6
+                xor     a6, a5, a1
+                srli    a5, a2, 22
+                slli    a3, a2, 42
+                or      a3, a3, a5
+                xor     t1, a3, a2
+                srli    a5, t3, 5
+                slli    a4, t3, 59
+                or      a4, a4, a5
+                xor     a4, a4, t3
+                srli    a5, a7, 7
+                slli    a3, a7, 57
+                or      a3, a3, a5
+                xor     t2, a3, a7
+                srli    a5, t0, 34
+                slli    a3, t0, 30
+                or      a3, a3, a5
+                xor     t4, a3, t0
+                srli    a5, a6, 19
+                slli    a6, a6, 45
+                or      a5, a6, a5
+                xor     a1, a1, a5
+                srli    a5, t1, 39
+                slli    t1, t1, 25
+                or      a5, t1, a5
+                xor     a2, a2, a5
+                srli    a5, a4, 1
+                slli    a4, a4, 63
+                or      a4, a4, a5
+                xor     a4, t3, a4
+                not     a4, a4
+                srli    a5, t2, 10
+                slli    t2, t2, 54
+                or      a5, t2, a5
+                xor     a5, a5, a7
+                srli    a3, t4, 7
+                slli    t4, t4, 57
+                or      a3, t4, a3
+                xor     a3, a3, t0
+                sd      a1, 0(a0)
+                sd      a2, 8(a0)
+                sd      a4, 16(a0)
+                sd      a5, 24(a0)
+                sd      a3, 32(a0)
+                ret
+        ";
+
+        let (ch0, ch1) = create_channels();
+        let run = move |id: usize, ch: ThreadChannel| -> Result<Vec<u64>> {
+            let mut party = if id == PARTY_0 {
+                PartyBuilder::new(id, ch)
+                    .register(Register::x10, Integer::Public(0x0).into())
+                    .register(Register::x11, Integer::Public(U64_BYTES * 5).into())
+                    .register(Register::x12, Integer::Public(0x1f).into())
+                    .address_range(
+                        U64_BYTES * 5,
+                        vec![
+                            Integer::Secret(Share::Binary(0x0123456789abcdef)).into(),
+                            Integer::Secret(Share::Binary(0x23456789abcdef01)).into(),
+                            Integer::Secret(Share::Binary(0x456789abcdef0123)).into(),
+                            Integer::Secret(Share::Binary(0x6789abcdef012345)).into(),
+                            Integer::Secret(Share::Binary(0x89abcde01234567f)).into(),
+                        ],
+                    )?
+                    .build()?
+            } else {
+                PartyBuilder::new(id, ch)
+                    .register(Register::x10, Integer::Public(0x0).into())
+                    .register(Register::x11, Integer::Public(U64_BYTES * 5).into())
+                    .register(Register::x12, Integer::Public(0x1f).into())
+                    .build()?
+            };
+            party.execute(&program.parse()?)?;
+            party
+                .address_range(0x0..U64_BYTES * 5)?
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<u64>>>()
+        };
+
+        let party0 = thread::spawn(move || run(PARTY_0, ch0));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1));
+
+        let res0 = party0.join().unwrap().unwrap();
+        let res1 = party1.join().unwrap().unwrap();
+
+        // https://github.com/RustCrypto/sponges/blob/master/ascon/src/lib.rs
+        let expected = [
+            0x3c1748c9be2892ce,
+            0x5eafb305cd26164f,
+            0xf9470254bb3a4213,
+            0xf0428daf0c5d3948,
+            0x281375af0b294899,
+        ];
+
+        assert_eq!(res0, expected);
+        assert_eq!(res1, expected);
+
+        Ok(())
+    }
 }

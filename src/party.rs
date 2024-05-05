@@ -322,7 +322,7 @@ impl<C: Channel> Party<C> {
     pub fn execute(&mut self, program: &Program) -> Result<()> {
         let start = Instant::now();
         let instructions = &program.instructions;
-        self.pc = program.entry_offset;
+        self.pc = program.entry;
 
         while let Some(instruction) = instructions.get(self.pc as usize) {
             if !matches!(instruction, Instruction::Label(_)) {
@@ -764,7 +764,7 @@ impl<C: Channel> Party<C> {
                     let rs3 = self.registers.get(*rs3).try_into()?;
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fadd(res, rs3)?;
-                    let res = self.executor.fsub(Float::Public(0.0), res)?;
+                    let res = self.executor.fneg(res)?;
                     debug!("fnmadd res = {res:?}");
                     self.registers.set(*rd, res.into());
                 }
@@ -774,7 +774,7 @@ impl<C: Channel> Party<C> {
                     let rs3 = self.registers.get(*rs3).try_into()?;
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fsub(res, rs3)?;
-                    let res = self.executor.fsub(Float::Public(0.0), res)?;
+                    let res = self.executor.fneg(res)?;
                     debug!("fnmsub res = {res:?}");
                     self.registers.set(*rd, res.into());
                 }
@@ -885,10 +885,7 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::FNEG { rd, rs1 } => {
                     let rs1 = self.registers.get(*rs1).try_into()?;
-                    let sign_rs1 = self.executor.fsign(rs1)?;
-                    let sign = self.executor.sub(Integer::Public(0), sign_rs1)?;
-                    let abs_rs1 = self.executor.fabs(rs1)?;
-                    let res = self.executor.fmul_integer(abs_rs1, sign)?;
+                    let res = self.executor.fneg(rs1)?;
                     debug!("fneg res = {res:?}");
                     self.registers.set(*rd, res.into());
                 }
@@ -914,7 +911,7 @@ mod tests {
         channel::{Message, ThreadChannel},
         party::PARTY_1,
         types::Integer,
-        Result, Share, U64_BYTES,
+        Program, Result, Share, U64_BYTES,
     };
     use std::{
         collections::BTreeSet,
@@ -1120,35 +1117,51 @@ mod tests {
     fn mean_salary() -> Result<()> {
         // https://godbolt.org/z/nGWWb5bbn
         let program = "
-            mean:
-                    addi    sp, sp, -16
-                    sd      ra, 8(sp)
-                    li      a6, 0
-                    slli    a5, a1, 3
-                    beqz    a5, .LBB0_2
-            .LBB0_1:
-                    ld      a4, 0(a0)
+            sum:
+                    li      a2, 0
+                    beq     a0, a1, .LBB1_3
+                    sub     a1, a1, a0
+                    srli    a1, a1, 3
+            .LBB1_2:
+                    ld      a3, 0(a0)
+                    add     a2, a2, a3
+                    addi    a1, a1, -1
                     addi    a0, a0, 8
-                    add     a6, a6, a4
-                    addi    a5, a5, -8
-                    bnez    a5, .LBB0_1
-            .LBB0_2:
-                    slli    a0, a3, 3
-                    beqz    a0, .LBB0_4
-            .LBB0_3:
-                    ld      a4, 0(a2)
-                    addi    a2, a2, 8
-                    add     a6, a6, a4
-                    addi    a0, a0, -8
-                    bnez    a0, .LBB0_3
-            .LBB0_4:
-                    add     a1, a1, a3
-                    beqz    a1, .LBB0_6
-                    divu    a0, a6, a1
-                    ld      ra, 8(sp)
-                    addi    sp, sp, 16
+                    bnez    a1, .LBB1_2
+            .LBB1_3:
+                    mv      a0, a2
                     ret
-            .LBB0_6:
+
+            mean:
+                    addi    sp, sp, -48
+                    sd      ra, 40(sp)
+                    sd      s0, 32(sp)
+                    sd      s1, 24(sp)
+                    sd      s2, 16(sp)
+                    sd      s3, 8(sp)
+                    mv      s3, a3
+                    mv      s0, a2
+                    mv      s1, a1
+                    slli    a1, a1, 3
+                    add     a1, a1, a0
+                    call    sum
+                    mv      s2, a0
+                    slli    a1, s3, 3
+                    add     a1, a1, s0
+                    mv      a0, s0
+                    call    sum
+                    add     s1, s1, s3
+                    beqz    s1, .LBB4_2
+                    add     a0, a0, s2
+                    divu    a0, a0, s1
+                    ld      ra, 40(sp)
+                    ld      s0, 32(sp)
+                    ld      s1, 24(sp)
+                    ld      s2, 16(sp)
+                    ld      s3, 8(sp)
+                    addi    sp, sp, 48
+                    ret
+            .LBB4_2:
         ";
 
         let (ch0, ch1) = create_channels();
@@ -1183,7 +1196,7 @@ mod tests {
                 )?
                 .build()?;
 
-            party.execute(&program.parse()?)?;
+            party.execute(&program.parse::<Program>()?.with_entry("mean")?)?;
 
             party.register(Register::x10)?.try_into()
         };

@@ -13,6 +13,7 @@ use crate::{
 use bit::BitIndex;
 use log::debug;
 use rand::Rng;
+use std::{f64::consts::E, ops::Neg};
 
 /// Number of AND triples needed per secret `<`, `>`, `<=`, `>=`.
 /// Secret `==` and `!=` need `2 * CMP_AND_TRIPLES`.
@@ -469,6 +470,8 @@ impl<C: Channel> MPCExecutor<C> {
                 if y == 0 {
                     Err(Error::DivByZero)
                 } else {
+                    // TODO wrap count
+                    // https://github.com/facebookresearch/CrypTen/blob/main/crypten/mpc/primitives/beaver.py#L129
                     let tmp = Integer::Secret(Share::Arithmetic(x / y));
                     self.sub(tmp, Integer::Public(u64::MAX / y))
                 }
@@ -640,6 +643,8 @@ impl<C: Channel> MPCExecutor<C> {
             | (Integer::Secret(Share::Arithmetic(_)), Integer::Public(_))
             | (Integer::Public(_), Integer::Secret(Share::Arithmetic(_))) => {
                 let z_a = self.sub(x, y)?;
+                // TODO b2a_single_bit
+                // https://github.com/facebookresearch/CrypTen/blob/main/crypten/mpc/primitives/beaver.py#L193
                 let z_b = self.a2b(z_a)?;
                 self.rshift(z_b, Integer::Public(63))
             }
@@ -767,26 +772,49 @@ impl<C: Channel> MPCExecutor<C> {
         }
     }
 
+    pub fn fexp(&mut self, x: Float) -> Result<Float> {
+        debug!("fexp x = {x:?}");
+        match x {
+            Float::Public(x) => Ok(Float::Public(E.powf(x))),
+            Float::Secret(x) => {
+                const ITERS: usize = 8;
+                let tmp = self.fdiv(Float::Secret(x), Float::Public(2.0f64.powi(ITERS as i32)))?;
+                let mut res = self.fadd(tmp, Float::Public(1.0))?;
+                for _ in 0..ITERS {
+                    res = self.fmul(res, res)?;
+                }
+                Ok(res)
+            }
+        }
+    }
+
     pub fn fsqrt(&mut self, x: Float) -> Result<Float> {
         debug!("fsqrt x = {x:?}");
         match x {
             Float::Public(x) => Ok(Float::Public(x.sqrt())),
             Float::Secret(x) => {
+                const ITERS: usize = 3;
+                // https://github.com/facebookresearch/CrypTen/blob/main/crypten/common/functions/approximations.py
+                let x2 = self.fdiv(Float::Secret(x), Float::Public(2.0))?;
+                let three_halfs = Float::Public(1.5);
+                let tmp = self.fadd(x2, Float::Public(0.2))?;
+                let tmp = self.fmul(tmp, Float::Public(-1.0))?;
+                let tmp = self.fexp(tmp)?;
+                let tmp = self.fmul(tmp, Float::Public(2.2))?;
+                let tmp = self.fadd(tmp, Float::Public(0.2))?;
+                let tmp1 = self.fdiv(Float::Secret(x), Float::Public(1024.0))?;
+                let mut y = self.fsub(tmp, tmp1)?;
+
                 // https://en.wikipedia.org/wiki/Fast_inverse_square_root
-                // y_n+1 = 1/2 * y_n * (3 − x * y_n * y_n).
-                let mut y_n = Integer::Secret(Share::Arithmetic(1));
-                for _ in 0..2 {
-                    let tmp = self.mul(y_n, y_n)?;
-                    let tmp = self.mul(Integer::Secret(Share::Arithmetic(x)), tmp)?;
-                    let tmp = self.sub(Integer::Public(3), tmp)?;
-                    let tmp = self.mul(y_n, tmp)?;
-                    y_n = self.div(tmp, Integer::Public(2))?;
+                for _ in 0..ITERS {
+                    let tmp = self.fmul(y, y)?;
+                    let tmp = self.fmul(x2, tmp)?;
+                    let tmp = self.fsub(three_halfs, tmp)?;
+                    y = self.fmul(y, tmp)?;
                 }
                 // inv_sqrt * x
-                Ok(Float::Secret(
-                    self.mul(y_n, Integer::Secret(Share::Arithmetic(x)))?
-                        .as_u64(),
-                ))
+                let res = self.fmul(y, Float::Secret(x))?;
+                Ok(res)
             }
         }
     }
@@ -868,6 +896,13 @@ impl<C: Channel> MPCExecutor<C> {
                 let embedded = self.mul(x, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?;
                 Ok(Float::Secret(embedded.as_u64()))
             }
+        }
+    }
+
+    pub fn fneg(&mut self, x: Float) -> Result<Float> {
+        match x {
+            Float::Public(x) => Ok(Float::Public(x.neg())),
+            Float::Secret(_) => self.fmul(x, Float::Public(-1.0)),
         }
     }
 }
@@ -1523,16 +1558,44 @@ mod tests {
     }
 
     #[test]
+    fn fneg_public() {
+        let x = Float::Public(-1.5);
+        test!(MPCExecutor::fneg, x, 1.5.into());
+        let x = Float::Public(1.5);
+        test!(MPCExecutor::fneg, x, (-1.5).into());
+    }
+
+    #[test]
+    fn fneg_secret() {
+        let x = Float::Secret((-1.5).embed().unwrap());
+        test!(MPCExecutor::fneg, x, 1.5.into());
+        let x = Float::Secret(1.5.embed().unwrap());
+        test!(MPCExecutor::fneg, x, (-1.5).into());
+    }
+
+    #[test]
     fn fsqrt_public() {
         let x = Float::Public(16.0);
         test!(MPCExecutor::fsqrt, x, 4.0.into());
     }
 
-    #[ignore = "not finished"]
     #[test]
     fn fsqrt_secret() {
         let x = Float::Secret(16.0.embed().unwrap());
         test!(MPCExecutor::fsqrt, x, 4.0.into());
+    }
+
+    #[test]
+    fn fexp_public() {
+        let x = Float::Public(2.0);
+        test!(MPCExecutor::fexp, x, E.powf(2.0).into());
+    }
+
+    #[ignore = "error too high"]
+    #[test]
+    fn fexp_secret() {
+        let x = Float::Secret(2.0.embed().unwrap());
+        test!(MPCExecutor::fexp, x, E.powf(2.0).into());
     }
 
     #[test]

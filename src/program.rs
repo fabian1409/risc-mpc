@@ -9,8 +9,7 @@ use std::{collections::HashMap, str::FromStr};
 #[derive(Debug, PartialEq, Eq)]
 pub struct Program {
     pub(crate) instructions: Vec<Instruction>,
-    pub(crate) entry: Option<String>,
-    pub(crate) entry_offset: u64,
+    pub(crate) entry: u64,
     pub(crate) text_labels: HashMap<String, u64>,
 }
 
@@ -25,8 +24,7 @@ impl Program {
         }
         Self {
             instructions,
-            entry: None,
-            entry_offset: 0,
+            entry: 0,
             text_labels,
         }
     }
@@ -37,8 +35,7 @@ impl Program {
             .text_labels
             .get(entry)
             .ok_or(Error::UnknownLabel(entry.to_string()))?;
-        self.entry = Some(entry.to_string());
-        self.entry_offset = *entry_offset;
+        self.entry = *entry_offset;
         Ok(self)
     }
 

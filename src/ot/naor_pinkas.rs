@@ -19,10 +19,10 @@ pub struct OTSender {
 
 impl OTSender {
     /// Create new [`OTReceiver`]
-    pub fn new() -> OTSender {
-        OTSender {
+    pub fn new<C: Channel>(_: &mut C) -> Result<OTSender> {
+        Ok(OTSender {
             rng: rand::thread_rng(),
-        }
+        })
     }
 
     /// Send `inputs` to [`OTReceiver`] using oblivious transfer.
@@ -62,10 +62,10 @@ pub struct OTReceiver {
 
 impl OTReceiver {
     /// Create new [`OTReceiver`]
-    pub fn new() -> OTReceiver {
-        OTReceiver {
+    pub fn new<C: Channel>(_: &mut C) -> Result<OTReceiver> {
+        Ok(OTReceiver {
             rng: rand::thread_rng(),
-        }
+        })
     }
 
     /// Receive from [`OTSender`] with the given `inputs` as choice bits.
@@ -140,11 +140,11 @@ mod tests {
             .collect::<Vec<Block>>();
 
         let sender = thread::spawn(move || {
-            let mut sender = OTSender::new();
+            let mut sender = OTSender::new(&mut ch0).unwrap();
             sender.send(&mut ch0, &inputs).unwrap();
         });
         let receiver = thread::spawn(move || -> Vec<Block> {
-            let mut receiver = OTReceiver::new();
+            let mut receiver = OTReceiver::new(&mut ch1).unwrap();
             receiver.receive(&mut ch1, &choices).unwrap()
         });
 

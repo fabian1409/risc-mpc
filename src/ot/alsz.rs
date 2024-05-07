@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_alsz() {
         let (mut ch0, mut ch1) = create_channels();
-        let n = 100;
+        let n = 10_000_000;
         let inputs = (0..n)
             .map(|_| (random(), random()))
             .collect::<Vec<(Block, Block)>>();

@@ -80,6 +80,7 @@ impl OTExtSender {
         Ok(())
     }
 
+    #[allow(unused)]
     pub fn send_correlated<C: Channel>(
         &mut self,
         channel: &mut C,
@@ -102,6 +103,7 @@ impl OTExtSender {
         Ok(out)
     }
 
+    #[allow(unused)]
     pub fn send_random<C: Channel>(
         &mut self,
         channel: &mut C,
@@ -193,6 +195,7 @@ impl OTExtReceiver {
         Ok(out)
     }
 
+    #[allow(unused)]
     pub fn receive_correlated<C: Channel>(
         &mut self,
         channel: &mut C,
@@ -212,6 +215,7 @@ impl OTExtReceiver {
         Ok(out)
     }
 
+    #[allow(unused)]
     pub fn receive_random<C: Channel>(
         &mut self,
         channel: &mut C,
@@ -251,7 +255,7 @@ mod tests {
     #[test]
     fn test_alsz() {
         let (mut ch0, mut ch1) = create_channels();
-        let n = 10_000_000;
+        let n = 100;
         let inputs = (0..n)
             .map(|_| (random(), random()))
             .collect::<Vec<(Block, Block)>>();

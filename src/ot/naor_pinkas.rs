@@ -1,6 +1,8 @@
 //! Implementation of the Naor-Pinkas oblivious transfer protocol (cf. <https://dl.acm.org/citation.cfm?id=365502>).
 //! Based on <https://github.com/GaloisInc/swanky/blob/master/ocelot/src/ot/naor_pinkas.rs>.
 
+#![allow(unused)]
+
 use super::utils::block::{hash_pt, Block};
 use crate::{
     channel::{Channel, Message},

@@ -38,6 +38,13 @@ impl Integer {
             Integer::Public(x) => *x,
         }
     }
+
+    pub fn as_public(&self) -> Option<u64> {
+        match self {
+            Integer::Public(x) => Some(*x),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Integer {
@@ -63,6 +70,13 @@ impl Float {
             Float::Public(_) => None,
         }
     }
+
+    pub fn as_public(&self) -> Option<f64> {
+        match self {
+            Float::Public(x) => Some(*x),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Float {
@@ -79,6 +93,15 @@ impl Default for Float {
 pub enum Value {
     Integer(Integer),
     Float(Float),
+}
+
+impl Value {
+    pub fn as_public_integer(&self) -> Option<u64> {
+        match self {
+            Value::Integer(Integer::Public(x)) => Some(*x),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Value {

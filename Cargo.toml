@@ -21,6 +21,7 @@ tiny-keccak = { version = "2.0.2", features = ["k12"] }
 aes = "0.8.4"
 rand_core = "0.6.4"
 approx = "0.5.1"
+itertools = "0.12.1"
 
 [profile.test]
 opt-level = 3

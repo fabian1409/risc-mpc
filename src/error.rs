@@ -36,8 +36,12 @@ pub enum Error {
     UnexpectedMessage,
     #[error("unexpected value")]
     UnexpectedValue,
+    #[error("unexpected register")]
+    UnexpectedRegister,
     #[error("error in fixed-point embedding")]
     FixedPointEmbeddingError,
+    #[error("empty vector")]
+    EmptyVec,
 }
 
 /// [`Result`] type for riscMPC.

@@ -28,5 +28,5 @@ pub use memory::{Address, U64_BYTES};
 pub use mpc_executor::CMP_AND_TRIPLES;
 pub use party::{Party, PartyBuilder, PARTY_0, PARTY_1};
 pub use program::Program;
-pub use registers::Register;
+pub use registers::{FRegister, Register, XRegister};
 pub use types::{Float, Input, Integer, Output, Share};

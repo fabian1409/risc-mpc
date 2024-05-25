@@ -1,5 +1,6 @@
 use risc_mpc::{
-    Integer, PartyBuilder, Register, Result, Share, TcpChannel, CMP_AND_TRIPLES, PARTY_0, U64_BYTES,
+    Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, CMP_AND_TRIPLES, PARTY_0,
+    U64_BYTES,
 };
 use std::collections::BTreeSet;
 
@@ -52,11 +53,14 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_0, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_0, ch)
-        .register(Register::x10, Integer::Public(0x0).into()) // set0 address
-        .register(Register::x11, Integer::Public(n).into()) // set0 length
-        .register(Register::x12, Integer::Public(U64_BYTES * n).into()) // set1 address
-        .register(Register::x13, Integer::Public(k).into()) // set1 length
-        .register(Register::x14, Integer::Public(U64_BYTES * (n + k)).into()) // intersection address
+        .register(XRegister::x10.into(), Integer::Public(0x0).into())? // set0 address
+        .register(XRegister::x11.into(), Integer::Public(n).into())? // set0 length
+        .register(XRegister::x12.into(), Integer::Public(U64_BYTES * n).into())? // set1 address
+        .register(XRegister::x13.into(), Integer::Public(k).into())? // set1 length
+        .register(
+            XRegister::x14.into(),
+            Integer::Public(U64_BYTES * (n + k)).into(),
+        )? // intersection address
         .address_range(
             0x0,
             set.iter()
@@ -68,7 +72,7 @@ fn main() -> Result<()> {
 
     party.execute(&program)?;
 
-    let len: u64 = party.register(Register::x10)?.try_into()?;
+    let len: u64 = party.register(XRegister::x10.into())?.try_into()?;
     let intersection = party
         .address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?
         .into_iter()

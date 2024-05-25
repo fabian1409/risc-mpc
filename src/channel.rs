@@ -19,6 +19,7 @@ use tsyncp::channel::{channel_on, channel_to, BincodeChannel};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     Share(Share),
+    ShareVec(Vec<Share>),
     SecretInputs(Vec<(Location, Value)>),
     Point(RistrettoPoint),
     Block(Block),
@@ -29,6 +30,13 @@ impl Message {
     pub fn as_share(&self) -> Option<Share> {
         match self {
             Message::Share(share) => Some(*share),
+            _ => None,
+        }
+    }
+
+    pub fn as_share_vec(&self) -> Option<Vec<Share>> {
+        match self {
+            Message::ShareVec(shares) => Some(shares.clone()),
             _ => None,
         }
     }

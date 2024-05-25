@@ -5,7 +5,7 @@ use crate::{
     memory::{Address, Memory},
     mpc_executor::{x_to_shares, MPCExecutor, ToFixedPoint},
     program::Program,
-    registers::{Register, Registers},
+    registers::{FRegisters, Register, VRegisters, XRegister, XRegisters},
     triple_provider::TripleProvider,
     types::{Float, Input, Integer, Output, Value},
     Share, U64_BYTES,
@@ -37,7 +37,9 @@ pub enum Location {
 pub struct PartyBuilder<C: Channel> {
     id: usize,
     ch: C,
-    registers: Registers,
+    x_registers: XRegisters,
+    f_registers: FRegisters,
+    v_registers: VRegisters,
     memory: Memory,
     secret_inputs: Vec<(Location, Value)>,
     n_mul_triples: u64,
@@ -54,7 +56,9 @@ impl<C: Channel> PartyBuilder<C> {
         PartyBuilder {
             id,
             ch,
-            registers: Registers::new(),
+            x_registers: XRegisters::new(),
+            f_registers: FRegisters::new(),
+            v_registers: VRegisters::new(),
             memory: Memory::new(),
             secret_inputs: Vec::new(),
             n_mul_triples: 0,
@@ -62,29 +66,33 @@ impl<C: Channel> PartyBuilder<C> {
         }
     }
     /// Set a [`Register`] to a given [`Input`].
-    pub fn register(mut self, register: Register, input: Input) -> PartyBuilder<C> {
+    pub fn register(mut self, register: Register, input: Input) -> Result<PartyBuilder<C>> {
         match input {
             Input::Integer(Integer::Public(x)) => {
-                self.registers.set(register, Integer::Public(x).into());
+                self.x_registers
+                    .set(register.try_into()?, Integer::Public(x));
             }
             Input::Integer(Integer::Secret(secret)) => {
                 let (share0, share1) = x_to_shares(secret);
-                self.registers.set(register, Integer::Secret(share0).into());
+                self.x_registers
+                    .set(register.try_into()?, Integer::Secret(share0));
                 self.secret_inputs
                     .push((Location::Register(register), Integer::Secret(share1).into()));
             }
-            Input::Float(Float::Public(x)) => self.registers.set(register, Float::Public(x).into()),
+            Input::Float(Float::Public(x)) => {
+                self.f_registers.set(register.try_into()?, Float::Public(x))
+            }
             Input::Float(Float::Secret(secret)) => {
                 let (share0, share1) = x_to_shares(Share::Arithmetic(secret));
-                self.registers
-                    .set(register, Float::Secret(share0.into()).into());
+                self.f_registers
+                    .set(register.try_into()?, Float::Secret(share0.into()));
                 self.secret_inputs.push((
                     Location::Register(register),
                     Float::Secret(share1.into()).into(),
                 ));
             }
         }
-        self
+        Ok(self)
     }
 
     /// Set a [`Address`] to a given [`Input`].
@@ -159,7 +167,12 @@ impl<C: Channel> PartyBuilder<C> {
         if let Message::SecretInputs(secret_inputs) = self.ch.recv()? {
             for (location, value) in secret_inputs {
                 match location {
-                    Location::Register(register) => self.registers.set(register, value),
+                    Location::Register(register) => match value {
+                        Value::Integer(integer) => {
+                            self.x_registers.set(register.try_into()?, integer)
+                        }
+                        Value::Float(float) => self.f_registers.set(register.try_into()?, float),
+                    },
                     Location::Address(address) => self.memory.store(address, value)?,
                 }
             }
@@ -187,7 +200,9 @@ impl<C: Channel> PartyBuilder<C> {
 
         Ok(Party {
             id: self.id,
-            registers: self.registers,
+            x_registers: self.x_registers,
+            f_registers: self.f_registers,
+            v_registers: self.v_registers,
             memory: self.memory,
             pc: 0,
             call_depth: 0,
@@ -201,7 +216,9 @@ impl<C: Channel> PartyBuilder<C> {
 #[derive(Debug)]
 pub struct Party<C: Channel> {
     id: usize,
-    registers: Registers,
+    x_registers: XRegisters,
+    f_registers: FRegisters,
+    v_registers: VRegisters,
     memory: Memory,
     pc: u64,
     call_depth: u64,
@@ -211,13 +228,19 @@ pub struct Party<C: Channel> {
 impl<C: Channel> Party<C> {
     /// Open the secret value or get the public value as [`Output`] from the given [`Register`].
     pub fn register(&mut self, register: Register) -> Result<Output> {
-        let value = self.registers.get(register);
+        let value = match register {
+            Register::Integer(x) => self.x_registers.get(x).into(),
+            Register::Float(f) => self.f_registers.get(f).into(),
+        };
         self.open(value)
     }
 
     /// Open the secret value (only for [`Party`] with given `id`) or get the public value as [`Output`] from the given [`Register`].
     pub fn register_for(&mut self, register: Register, id: usize) -> Result<Option<Output>> {
-        let value = self.registers.get(register);
+        let value = match register {
+            Register::Integer(x) => self.x_registers.get(x).into(),
+            Register::Float(f) => self.f_registers.get(f).into(),
+        };
         self.open_for(value, id)
     }
 
@@ -285,30 +308,6 @@ impl<C: Channel> Party<C> {
         }
     }
 
-    /// Load the [`Value`] from the address given by `base + offset` and store in `dest`.
-    fn load(&mut self, base: Register, offset: i32, dest: Register) -> Result<()> {
-        if let Integer::Public(base) = self.registers.get(base).try_into()? {
-            let address = base + offset as u64;
-            let value = self.memory.load(address)?;
-            self.registers.set(dest, value);
-            Ok(())
-        } else {
-            Err(Error::SecretValueAsAddress)
-        }
-    }
-
-    /// Store the [`Value`] from the `src` register at the address given by `base + offset`.
-    fn store(&mut self, base: Register, offset: i32, src: Register) -> Result<()> {
-        if let Integer::Public(base) = self.registers.get(base).try_into()? {
-            let address = base + offset as u64;
-            let value = self.registers.get(src);
-            self.memory.store(address, value)?;
-            Ok(())
-        } else {
-            Err(Error::SecretValueAsAddress)
-        }
-    }
-
     fn update_pc(&mut self, base: u64, offset: i32) {
         debug!("update_pc base = {base} offset = {offset}");
         if offset.is_negative() {
@@ -330,133 +329,141 @@ impl<C: Channel> Party<C> {
             }
             match instruction {
                 Instruction::ADDI { rd, rs1, imm } => {
-                    let src = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.addi(src, *imm)?.into();
+                    let src = self.x_registers.get(*rs1);
+                    let res = self.executor.addi(src, *imm)?;
                     debug!("addi res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::ADD { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.add(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.add(rs1, rs2)?;
                     debug!("add res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SUB { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.sub(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.sub(rs1, rs2)?;
                     debug!("sub res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::DIV { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.div(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.div(rs1, rs2)?;
                     debug!("div res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::REM { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.rem(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.rem(rs1, rs2)?;
                     debug!("rem res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::MUL { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.mul(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.mul(rs1, rs2)?;
                     debug!("mul res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::XOR { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.xor(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.xor(rs1, rs2)?;
                     debug!("xor res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::XORI { rd, rs1, imm } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.xori(rs1, *imm)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.xori(rs1, *imm)?;
                     debug!("xori res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::AND { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.and(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.and(rs1, rs2)?;
                     debug!("and res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::ANDI { rd, rs1, imm } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.andi(rs1, *imm)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.andi(rs1, *imm)?;
                     debug!("andi res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::OR { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.or(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.or(rs1, rs2)?;
                     debug!("or res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::ORI { rd, rs1, imm } => {
-                    let src = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.ori(src, *imm)?.into();
+                    let src = self.x_registers.get(*rs1);
+                    let res = self.executor.ori(src, *imm)?;
                     debug!("ori res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::LD { rd, offset, rs1 } => {
-                    self.load(*rs1, *offset, *rd)?;
+                    let base = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let address = base + *offset as u64;
+                    let value = self.memory.load(address)?;
+                    self.x_registers.set(*rd, value.try_into()?);
                 }
                 Instruction::SD { rs2, offset, rs1 } => {
-                    self.store(*rs1, *offset, *rs2)?;
+                    let base = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let address = base + *offset as u64;
+                    let value = self.x_registers.get(*rs2).into();
+                    self.memory.store(address, value)?;
                 }
                 Instruction::SLL { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.lshift(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.lshift(rs1, rs2)?;
                     debug!("sll res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SLLI { rd, rs1, shamt } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self
-                        .executor
-                        .lshift(rs1, Integer::Public(*shamt as u64))?
-                        .into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.lshift(rs1, Integer::Public(*shamt as u64))?;
                     debug!("slli res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SRL { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let res = self.executor.rshift(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let res = self.executor.rshift(rs1, rs2)?;
                     debug!("srl res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SRLI { rd, rs1, shamt } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self
-                        .executor
-                        .rshift(rs1, Integer::Public(*shamt as u64))?
-                        .into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.rshift(rs1, Integer::Public(*shamt as u64))?;
                     debug!("srli res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::JAL { rd, label } => {
-                    self.registers.set(*rd, Integer::Public(self.pc + 1).into());
+                    self.x_registers.set(*rd, Integer::Public(self.pc + 1));
                     let address = program.offset(label, self.pc)?;
                     self.update_pc(address, 0);
                     self.call_depth += 1;
                 }
                 Instruction::JALR { rd, rs1, offset } => {
-                    self.registers.set(*rd, Integer::Public(self.pc + 1).into());
-                    let base = self.registers.get(*rs1);
-                    if let Integer::Public(base) = base.try_into()? {
+                    self.x_registers.set(*rd, Integer::Public(self.pc + 1));
+                    let base = self.x_registers.get(*rs1);
+                    if let Integer::Public(base) = base {
                         self.update_pc(base, *offset);
                         self.call_depth += 1;
                     } else {
@@ -464,8 +471,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BEQ { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let eq = self.executor.beq(rs1, rs2)?;
                     if eq {
                         debug!("beq taking branch");
@@ -474,8 +481,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BNE { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let eq = self.executor.beq(rs1, rs2)?;
                     if !eq {
                         debug!("bne taking branch");
@@ -484,8 +491,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BLT { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let lt = self.executor.blt(rs1, rs2)?;
                     if lt {
                         debug!("blt taking branch");
@@ -494,8 +501,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BGE { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let lt = self.executor.blt(rs1, rs2)?;
                     if !lt {
                         debug!("bge taking branch");
@@ -504,14 +511,14 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::SLTI { rd, rs1, imm } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.lt(rs1, Integer::Public(*imm as u64))?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.lt(rs1, Integer::Public(*imm as u64))?;
                     debug!("slti res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::LUI { rd, imm } => {
-                    self.registers
-                        .set(*rd, Integer::Public((*imm as u64) << 12).into());
+                    self.x_registers
+                        .set(*rd, Integer::Public((*imm as u64) << 12));
                 }
                 Instruction::AUIPC { rd, imm } => {
                     let address = if imm.is_negative() {
@@ -519,61 +526,61 @@ impl<C: Channel> Party<C> {
                     } else {
                         self.pc + ((*imm as u64) << 12)
                     };
-                    self.registers.set(*rd, Integer::Public(address).into());
+                    self.x_registers.set(*rd, Integer::Public(address));
                 }
                 Instruction::NOP => {}
                 Instruction::LI { rd, imm } => {
-                    self.registers.set(*rd, Integer::Public(*imm as u64).into());
+                    self.x_registers.set(*rd, Integer::Public(*imm as u64));
                 }
                 Instruction::MV { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1);
-                    self.registers.set(*rd, rs1);
+                    let rs1 = self.x_registers.get(*rs1);
+                    self.x_registers.set(*rd, rs1);
                 }
                 Instruction::NOT { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.xori(rs1, -1)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.xori(rs1, -1)?;
                     debug!("not res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::NEG { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.sub(Integer::Public(0), rs1)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.sub(Integer::Public(0), rs1)?;
                     debug!("neg res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SEQZ { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.eq(rs1, Integer::Public(0))?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.eq(rs1, Integer::Public(0))?;
                     debug!("seqz res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SNEZ { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let res = self.executor.neq(rs1, Integer::Public(0))?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let res = self.executor.neq(rs1, Integer::Public(0))?;
                     debug!("snez res = {res:?}");
-                    self.registers.set(*rd, res);
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::SLTZ { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let lt = self.executor.lt(rs1, Integer::Public(0))?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let lt = self.executor.lt(rs1, Integer::Public(0))?;
                     debug!("sltz lt = {lt:?}");
-                    self.registers.set(*rd, lt);
+                    self.x_registers.set(*rd, lt);
                 }
                 Instruction::SLT { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let lt = self.executor.lt(rs1, rs2)?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
+                    let lt = self.executor.lt(rs1, rs2)?;
                     debug!("slt lt = {lt:?}");
-                    self.registers.set(*rd, lt);
+                    self.x_registers.set(*rd, lt);
                 }
                 Instruction::SGTZ { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let gt = self.executor.gt(rs1, Integer::Public(0))?.into();
+                    let rs1 = self.x_registers.get(*rs1);
+                    let gt = self.executor.gt(rs1, Integer::Public(0))?;
                     debug!("sgtz gt = {gt:?}");
-                    self.registers.set(*rd, gt);
+                    self.x_registers.set(*rd, gt);
                 }
                 Instruction::BEQZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let eq = self.executor.beq(rs1, Integer::Public(0))?;
                     if eq {
                         debug!("beqz taking branch");
@@ -582,7 +589,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BNEZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let eq = self.executor.beq(rs1, Integer::Public(0))?;
                     if !eq {
                         debug!("bnez taking branch");
@@ -591,7 +598,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BLEZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let le = self.executor.ble(rs1, Integer::Public(0))?;
                     if le {
                         debug!("blez taking branch");
@@ -600,7 +607,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BGEZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let ge = self.executor.bge(rs1, Integer::Public(0))?;
                     if ge {
                         debug!("bgez taking branch");
@@ -609,7 +616,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BLTZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let lt = self.executor.blt(rs1, Integer::Public(0))?;
                     if lt {
                         debug!("bltz taking branch");
@@ -618,7 +625,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BGTZ { rs1, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let gt = self.executor.bgt(rs1, Integer::Public(0))?;
                     if gt {
                         debug!("bgtz taking branch");
@@ -627,8 +634,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BGT { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let gt = self.executor.bgt(rs1, rs2)?;
                     if gt {
                         debug!("bgt taking branch");
@@ -637,8 +644,8 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::BLE { rs1, rs2, label } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
+                    let rs2 = self.x_registers.get(*rs2);
                     let le = self.executor.ble(rs1, rs2)?;
                     if le {
                         debug!("ble taking branch");
@@ -652,7 +659,7 @@ impl<C: Channel> Party<C> {
                     self.update_pc(address, 0);
                 }
                 Instruction::JR { rs1 } => {
-                    if let Integer::Public(address) = self.registers.get(*rs1).try_into()? {
+                    if let Integer::Public(address) = self.x_registers.get(*rs1) {
                         debug!("jump to {address}");
                         self.update_pc(address, 0);
                     } else {
@@ -660,7 +667,7 @@ impl<C: Channel> Party<C> {
                     }
                 }
                 Instruction::RET => {
-                    if let Integer::Public(address) = self.registers.get(Register::x1).try_into()? {
+                    if let Integer::Public(address) = self.x_registers.get(XRegister::x1) {
                         // ignore trailing ret if no calls were made
                         if self.call_depth > 0 {
                             self.update_pc(address, 0);
@@ -674,8 +681,8 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::CALL { label } => {
                     let address = program.offset(label, self.pc)?;
-                    self.registers
-                        .set(Register::x1, Integer::Public(self.pc).into());
+                    self.x_registers
+                        .set(XRegister::x1, Integer::Public(self.pc));
                     self.update_pc(address, 0);
                     self.call_depth += 1;
                 }
@@ -687,173 +694,185 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::Label(_) => {}
                 Instruction::FADD { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fadd(rs1, rs2)?;
                     debug!("fadd res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FSUB { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fsub(rs1, rs2)?;
                     debug!("fsub res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FMUL { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fmul(rs1, rs2)?;
                     debug!("fmul res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FDIV { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fdiv(rs1, rs2)?;
                     debug!("fdiv res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FMIN { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fmin(rs1, rs2)?;
                     debug!("fmin res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FMAX { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fmax(rs1, rs2)?;
                     debug!("fmax res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FSQRT { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     let res = self.executor.fsqrt(rs1)?;
                     debug!("fsqrt res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FLD { rd, offset, rs1 } => {
-                    self.load(*rs1, *offset, *rd)?;
+                    let base = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let address = base + *offset as u64;
+                    let value = self.memory.load(address)?;
+                    self.f_registers.set(*rd, value.try_into()?);
                 }
                 Instruction::FSD { rs2, offset, rs1 } => {
-                    self.store(*rs1, *offset, *rs2)?;
+                    let base = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let address = base + *offset as u64;
+                    let value = self.f_registers.get(*rs2).into();
+                    self.memory.store(address, value)?;
                 }
                 Instruction::FMADD { rd, rs1, rs2, rs3 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
+                    let rs3 = self.f_registers.get(*rs3);
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fadd(res, rs3)?;
                     debug!("fmadd res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FMSUB { rd, rs1, rs2, rs3 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
+                    let rs3 = self.f_registers.get(*rs3);
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fsub(res, rs3)?;
                     debug!("fmsub res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FNMADD { rd, rs1, rs2, rs3 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
+                    let rs3 = self.f_registers.get(*rs3);
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fadd(res, rs3)?;
                     let res = self.executor.fneg(res)?;
                     debug!("fnmadd res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FNMSUB { rd, rs1, rs2, rs3 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
-                    let rs3 = self.registers.get(*rs3).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
+                    let rs3 = self.f_registers.get(*rs3);
                     let res = self.executor.fmul(rs1, rs2)?;
                     let res = self.executor.fsub(res, rs3)?;
                     let res = self.executor.fneg(res)?;
                     debug!("fnmsub res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FCVTLUD { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     let res = self.executor.fcvtlud(rs1)?;
-                    self.registers.set(*rd, res.into());
+                    self.x_registers.set(*rd, res);
                 }
                 Instruction::FCVTDLU { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     let res = self.executor.fcvtdlu(rs1)?;
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FMV { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1);
-                    self.registers.set(*rd, rs1);
+                    let rs1 = self.f_registers.get(*rs1);
+                    self.f_registers.set(*rd, rs1);
                 }
                 Instruction::FMVXD { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     match rs1 {
-                        Float::Public(x) => {
-                            self.registers.set(*rd, Integer::Public(x.to_bits()).into())
-                        }
+                        Float::Public(x) => self.x_registers.set(*rd, Integer::Public(x.to_bits())),
                         Float::Secret(_) => todo!("secret float to integer"),
                     }
                 }
                 Instruction::FMVDX { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.x_registers.get(*rs1);
                     match rs1 {
-                        Integer::Public(x) => self
-                            .registers
-                            .set(*rd, Float::Public(f64::from_bits(x)).into()),
+                        Integer::Public(x) => {
+                            self.f_registers.set(*rd, Float::Public(f64::from_bits(x)))
+                        }
                         Integer::Secret(_) => todo!("secret integer to float"),
                     }
                 }
                 Instruction::FSGNJ { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fsgnj(rs1, rs2)?;
                     debug!("fsgnj res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FSGNJN { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fsgnjn(rs1, rs2)?;
                     debug!("fsgnjn res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FSGNJX { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let res = self.executor.fsgnjx(rs1, rs2)?;
                     debug!("fsgnjx res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FEQ { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let eq = self.executor.feq(rs1, rs2)?;
                     debug!("feq = {eq:?}");
-                    self.registers.set(*rd, eq.into());
+                    self.x_registers.set(*rd, eq);
                 }
                 Instruction::FLT { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let lt = self.executor.flt(rs1, rs2)?;
                     debug!("flt = {lt:?}");
-                    self.registers.set(*rd, lt.into());
+                    self.x_registers.set(*rd, lt);
                 }
                 Instruction::FLE { rd, rs1, rs2 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
-                    let rs2 = self.registers.get(*rs2).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
+                    let rs2 = self.f_registers.get(*rs2);
                     let le = self.executor.fle(rs1, rs2)?;
                     debug!("fle = {le:?}");
-                    self.registers.set(*rd, le.into());
+                    self.x_registers.set(*rd, le);
                 }
                 Instruction::FCLASS { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     let class = match rs1 {
                         Float::Public(x) => {
                             if x == f64::NEG_INFINITY {
@@ -881,19 +900,206 @@ impl<C: Channel> Party<C> {
                         _ => todo!("class of secret float"),
                     };
                     debug!("fclass class = {class:?}");
-                    self.registers.set(*rd, Integer::Public(class).into());
+                    self.x_registers.set(*rd, Integer::Public(class));
                 }
                 Instruction::FNEG { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     let res = self.executor.fneg(rs1)?;
                     debug!("fneg res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
                 }
                 Instruction::FABS { rd, rs1 } => {
-                    let rs1 = self.registers.get(*rs1).try_into()?;
+                    let rs1 = self.f_registers.get(*rs1);
                     let res = self.executor.fabs(rs1)?;
                     debug!("fabs res = {res:?}");
-                    self.registers.set(*rd, res.into());
+                    self.f_registers.set(*rd, res);
+                }
+                Instruction::VSETVL { rd, rs1, rs2: _ } => {
+                    self.x_registers
+                        .set(*rd, Integer::Public(self.v_registers.vl));
+                    self.v_registers.vl = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::UnexpectedValue)?;
+                }
+                Instruction::VSETVLI { rd, rs1, imm: _ } => {
+                    self.x_registers
+                        .set(*rd, Integer::Public(self.v_registers.vl));
+                    self.v_registers.vl = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::UnexpectedValue)?;
+                }
+                Instruction::VLE { vd, rs1 } => {
+                    let address = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let res = (0..self.v_registers.vl)
+                        .map(|i| self.memory.load(address + i * U64_BYTES))
+                        .collect::<Result<Vec<Value>>>()?;
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VSE { vs2, rs1 } => {
+                    let address = self
+                        .x_registers
+                        .get(*rs1)
+                        .as_public()
+                        .ok_or(Error::SecretValueAsAddress)?;
+                    let vs2 = self.v_registers.get(*vs2);
+                    for (i, value) in vs2.iter().enumerate() {
+                        self.memory.store(address + i as u64 * U64_BYTES, *value)?;
+                    }
+                }
+                Instruction::VMULVV { vd, vs1, vs2 } => {
+                    let vs1 = self
+                        .v_registers
+                        .get(*vs1)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let res = self
+                        .executor
+                        .vmul(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vmulvv res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VMULVX { vd, rs1, vs2 } => {
+                    let rs1 = self.x_registers.get(*rs1);
+                    let vs1 = vec![rs1; self.v_registers.vl as usize];
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let res = self
+                        .executor
+                        .vmul(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vmulvx res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VFMULVV { vd, vs1, vs2 } => {
+                    let vs1 = self
+                        .v_registers
+                        .get(*vs1)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Float>>>()?;
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Float>>>()?;
+                    let res = self
+                        .executor
+                        .vfmul(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vfmulvv res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VFMULVF { vd, rs1, vs2 } => {
+                    let rs1 = self.f_registers.get(*rs1);
+                    let vs1 = vec![rs1; self.v_registers.vl as usize];
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Float>>>()?;
+                    let res = self
+                        .executor
+                        .vfmul(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vfmulvf res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VANDVV { vd, vs1, vs2 } => {
+                    let vs1 = self
+                        .v_registers
+                        .get(*vs1)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let res = self
+                        .executor
+                        .vand(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vandvv res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VANDVX { vd, rs1, vs2 } => {
+                    let rs1 = self.x_registers.get(*rs1);
+                    let vs1 = vec![rs1; self.v_registers.vl as usize];
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let res = self
+                        .executor
+                        .vand(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vandvx res = {res:?}");
+                    self.v_registers.set(*vd, res);
+                }
+                Instruction::VANDVI { vd, imm, vs2 } => {
+                    let vs1 = vec![Integer::Public(*imm as u64); self.v_registers.vl as usize];
+                    let vs2 = self
+                        .v_registers
+                        .get(*vs2)
+                        .iter()
+                        .copied()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<Integer>>>()?;
+                    let res = self
+                        .executor
+                        .vand(&vs1, &vs2)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect();
+                    debug!("vandvi res = {res:?}");
+                    self.v_registers.set(*vd, res);
                 }
             };
             self.update_pc(self.pc, 1);
@@ -906,10 +1112,11 @@ impl<C: Channel> Party<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PartyBuilder, Register, PARTY_0};
+    use super::{PartyBuilder, PARTY_0};
     use crate::{
         channel::{Message, ThreadChannel},
         party::PARTY_1,
+        registers::XRegister,
         types::Integer,
         Program, Result, Share, U64_BYTES,
     };
@@ -948,10 +1155,10 @@ mod tests {
         let (ch0, ch1) = create_channels();
         let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(Register::x10, Integer::Public(5).into())
+                .register(XRegister::x10.into(), Integer::Public(5).into())?
                 .build()?;
             party.execute(&program.parse()?)?;
-            party.register(Register::x10)?.try_into()
+            party.register(XRegister::x10.into())?.try_into()
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0));
@@ -999,10 +1206,10 @@ mod tests {
         let (ch0, ch1) = create_channels();
         let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(Register::x10, Integer::Public(10).into())
+                .register(XRegister::x10.into(), Integer::Public(10).into())?
                 .build()?;
             party.execute(&program.parse()?)?;
-            party.register(Register::x10)?.try_into()
+            party.register(XRegister::x10.into())?.try_into()
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0));
@@ -1077,11 +1284,14 @@ mod tests {
                         set_address: u64|
               -> Result<Vec<u64>> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(Register::x10, Integer::Public(set0_address).into())
-                .register(Register::x11, Integer::Public(set0_len).into())
-                .register(Register::x12, Integer::Public(set1_address).into())
-                .register(Register::x13, Integer::Public(set1_len).into())
-                .register(Register::x14, Integer::Public(intersection_addr).into())
+                .register(XRegister::x10.into(), Integer::Public(set0_address).into())?
+                .register(XRegister::x11.into(), Integer::Public(set0_len).into())?
+                .register(XRegister::x12.into(), Integer::Public(set1_address).into())?
+                .register(XRegister::x13.into(), Integer::Public(set1_len).into())?
+                .register(
+                    XRegister::x14.into(),
+                    Integer::Public(intersection_addr).into(),
+                )?
                 .address_range(
                     set_address,
                     set.iter()
@@ -1092,7 +1302,7 @@ mod tests {
 
             party.execute(&program.parse()?)?;
 
-            let len: u64 = party.register(Register::x10)?.try_into()?;
+            let len: u64 = party.register(XRegister::x10.into())?.try_into()?;
 
             party
                 .address_range(intersection_addr..intersection_addr + U64_BYTES * len)?
@@ -1168,14 +1378,13 @@ mod tests {
 
         let salaries0 = [1000, 2500, 1900, 3000, 2750, 5000];
         let salaries1 = [1200, 3500, 900, 4000, 1750, 1000];
-        let salaries0_len = salaries0.len() as u64;
-        let salaries1_len = salaries1.len() as u64;
-        let mean =
-            salaries0.iter().chain(salaries1.iter()).sum::<u64>() / (salaries0_len + salaries1_len);
+        let sal0_len = salaries0.len() as u64;
+        let sal1_len = salaries1.len() as u64;
+        let mean = salaries0.iter().chain(salaries1.iter()).sum::<u64>() / (sal0_len + sal1_len);
 
-        let base_address = 0x0;
-        let salaries0_address = base_address;
-        let salaries1_address = base_address + U64_BYTES * salaries0_len;
+        let base_addr = 0x0;
+        let sal0_addr = base_addr;
+        let sal1_addr = base_addr + U64_BYTES * sal0_len;
 
         let run = move |id: usize,
                         ch: ThreadChannel,
@@ -1183,10 +1392,10 @@ mod tests {
                         salaries_address: u64|
               -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(Register::x10, Integer::Public(salaries0_address).into())
-                .register(Register::x11, Integer::Public(salaries0_len).into())
-                .register(Register::x12, Integer::Public(salaries1_address).into())
-                .register(Register::x13, Integer::Public(salaries1_len).into())
+                .register(XRegister::x10.into(), Integer::Public(sal0_addr).into())?
+                .register(XRegister::x11.into(), Integer::Public(sal0_len).into())?
+                .register(XRegister::x12.into(), Integer::Public(sal1_addr).into())?
+                .register(XRegister::x13.into(), Integer::Public(sal1_len).into())?
                 .address_range(
                     salaries_address,
                     salaries
@@ -1198,11 +1407,11 @@ mod tests {
 
             party.execute(&program.parse::<Program>()?.with_entry("mean")?)?;
 
-            party.register(Register::x10)?.try_into()
+            party.register(XRegister::x10.into())?.try_into()
         };
 
-        let party0 = thread::spawn(move || run(PARTY_0, ch0, &salaries0, salaries0_address));
-        let party1 = thread::spawn(move || run(PARTY_1, ch1, &salaries1, salaries1_address));
+        let party0 = thread::spawn(move || run(PARTY_0, ch0, &salaries0, sal0_addr));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1, &salaries1, sal1_addr));
 
         let mean0 = party0.join().unwrap().unwrap();
         let mean1 = party1.join().unwrap().unwrap();
@@ -1298,9 +1507,9 @@ mod tests {
         let run = move |id: usize, ch: ThreadChannel| -> Result<Vec<u64>> {
             let mut party = if id == PARTY_0 {
                 PartyBuilder::new(id, ch)
-                    .register(Register::x10, Integer::Public(0x0).into())
-                    .register(Register::x11, Integer::Public(U64_BYTES * 5).into())
-                    .register(Register::x12, Integer::Public(0x1f).into())
+                    .register(XRegister::x10.into(), Integer::Public(0x0).into())?
+                    .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 5).into())?
+                    .register(XRegister::x12.into(), Integer::Public(0x1f).into())?
                     .address_range(
                         U64_BYTES * 5,
                         vec![
@@ -1314,9 +1523,9 @@ mod tests {
                     .build()?
             } else {
                 PartyBuilder::new(id, ch)
-                    .register(Register::x10, Integer::Public(0x0).into())
-                    .register(Register::x11, Integer::Public(U64_BYTES * 5).into())
-                    .register(Register::x12, Integer::Public(0x1f).into())
+                    .register(XRegister::x10.into(), Integer::Public(0x0).into())?
+                    .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 5).into())?
+                    .register(XRegister::x12.into(), Integer::Public(0x1f).into())?
                     .build()?
             };
             party.execute(&program.parse()?)?;
@@ -1344,6 +1553,55 @@ mod tests {
 
         assert_eq!(res0, expected);
         assert_eq!(res1, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn vec_mul() -> Result<()> {
+        let program = "
+            vsetvli  x0,a3,e64
+            vle.v    v0,a0
+            vle.v    v1,a1
+            vmul.vv  v0,v0,v1
+            vse.v    v0,a2
+        ";
+
+        let (ch0, ch1) = create_channels();
+        let run = move |id: usize,
+                        ch: ThreadChannel,
+                        vec: &[u64],
+                        vec_address: u64|
+              -> Result<Vec<u64>> {
+            let mut party = PartyBuilder::new(id, ch)
+                .register(XRegister::x10.into(), Integer::Public(0x0).into())?
+                .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 4).into())?
+                .register(XRegister::x12.into(), Integer::Public(U64_BYTES * 8).into())?
+                .register(XRegister::x13.into(), Integer::Public(4).into())?
+                .address_range(
+                    vec_address,
+                    vec.iter()
+                        .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                        .collect(),
+                )?
+                .build()?;
+            party.execute(&program.parse()?)?;
+            party
+                .address_range(U64_BYTES * 8..U64_BYTES * 12)?
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<u64>>>()
+        };
+        let vec0 = vec![2, 2, 2, 4];
+        let vec1 = vec![2, 4, 8, 8];
+        let party0 = thread::spawn(move || run(PARTY_0, ch0, &vec0, 0));
+        let party1 = thread::spawn(move || run(PARTY_1, ch1, &vec1, U64_BYTES * 4));
+
+        let res0 = party0.join().unwrap().unwrap();
+        let res1 = party1.join().unwrap().unwrap();
+
+        assert_eq!(res0, vec![4, 8, 16, 32]);
+        assert_eq!(res1, vec![4, 8, 16, 32]);
 
         Ok(())
     }

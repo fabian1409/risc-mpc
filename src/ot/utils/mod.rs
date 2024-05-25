@@ -97,7 +97,7 @@ mod tests {
     fn test_transpose() {
         test(16, 16);
         test(128, 16);
-        test(128, 24);
+        test(128, 32);
         test(128, 128);
         test(128, 1 << 16);
         test(128, 1 << 18);

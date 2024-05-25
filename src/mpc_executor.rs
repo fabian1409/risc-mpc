@@ -11,6 +11,7 @@ use crate::{
     Share,
 };
 use bit::BitIndex;
+use itertools::izip;
 use log::debug;
 use rand::Rng;
 use std::{f64::consts::E, ops::Neg};
@@ -133,6 +134,19 @@ impl<C: Channel> MPCExecutor<C> {
             let other = self.ch.recv()?.as_share().unwrap();
             self.ch.send(Message::Share(share))?;
             shares_to_x((share, other))
+        }
+    }
+
+    /// Reveal Vec of [`Share`]s.
+    pub fn reveal_vec(&mut self, shares: Vec<Share>) -> Result<Vec<u64>> {
+        if self.id == PARTY_0 {
+            self.ch.send(Message::ShareVec(shares.clone()))?;
+            let others = self.ch.recv()?.as_share_vec().unwrap();
+            shares.into_iter().zip(others).map(shares_to_x).collect()
+        } else {
+            let others = self.ch.recv()?.as_share_vec().unwrap();
+            self.ch.send(Message::ShareVec(shares.clone()))?;
+            shares.into_iter().zip(others).map(shares_to_x).collect()
         }
     }
 
@@ -456,6 +470,194 @@ impl<C: Channel> MPCExecutor<C> {
         }
     }
 
+    pub fn vmul(&mut self, x: &[Integer], y: &[Integer]) -> Result<Vec<Integer>> {
+        debug!("vmul x = {x:?} y = {y:?}");
+        match (x, y) {
+            ([Integer::Public(_), ..], [Integer::Public(_), ..]) => x
+                .iter()
+                .zip(y)
+                .map(|(x, y)| {
+                    Ok(Integer::Public(
+                        x.as_public().ok_or(Error::UnexpectedValue)?
+                            * y.as_public().ok_or(Error::UnexpectedValue)?,
+                    ))
+                })
+                .collect::<Result<Vec<Integer>>>(),
+            (
+                [Integer::Secret(Share::Arithmetic(_)), ..],
+                [Integer::Secret(Share::Arithmetic(_)), ..],
+            ) => {
+                let triples = (0..x.len())
+                    .map(|_| {
+                        self.triple_provider
+                            .mul_triple()
+                            .ok_or(Error::BeaverTripleError)
+                    })
+                    .collect::<Result<Vec<(u64, u64, u64)>>>()?;
+                let d_shares = x
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(x, (a, _, _))| Share::Arithmetic(x.as_u64().wrapping_sub(*a)))
+                    .collect::<Vec<Share>>();
+                let e_shares = y
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(y, (_, b, _))| Share::Arithmetic(y.as_u64().wrapping_sub(*b)))
+                    .collect::<Vec<Share>>();
+                let ds = self.reveal_vec(d_shares)?;
+                let es = self.reveal_vec(e_shares)?;
+
+                if self.id == PARTY_0 {
+                    Ok(izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Integer::Secret(Share::Arithmetic(
+                                c.wrapping_add(d.wrapping_mul(y.as_u64()))
+                                    .wrapping_add(e.wrapping_mul(x.as_u64()))
+                                    .wrapping_sub(d.wrapping_mul(e)),
+                            ))
+                        })
+                        .collect::<Vec<Integer>>())
+                } else {
+                    Ok(izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Integer::Secret(Share::Arithmetic(
+                                c.wrapping_add(d.wrapping_mul(y.as_u64()))
+                                    .wrapping_add(e.wrapping_mul(x.as_u64())),
+                            ))
+                        })
+                        .collect::<Vec<Integer>>())
+                }
+            }
+            ([Integer::Secret(Share::Arithmetic(_)), ..], [Integer::Public(_), ..])
+            | ([Integer::Public(_), ..], [Integer::Secret(Share::Arithmetic(_)), ..]) => Ok(x
+                .iter()
+                .zip(y)
+                .map(|(x, y)| {
+                    Integer::Secret(Share::Arithmetic(x.as_u64().wrapping_mul(y.as_u64())))
+                })
+                .collect::<Vec<Integer>>()),
+
+            _ => {
+                let x = x
+                    .iter()
+                    .map(|e| self.b2a(*e))
+                    .collect::<Result<Vec<Integer>>>()?;
+                let y = y
+                    .iter()
+                    .map(|e| self.b2a(*e))
+                    .collect::<Result<Vec<Integer>>>()?;
+                self.vmul(&x, &y)
+            }
+        }
+    }
+
+    pub fn vfmul(&mut self, x: &[Float], y: &[Float]) -> Result<Vec<Float>> {
+        debug!("vfmul x = {x:?} y = {y:?}");
+        match (x, y) {
+            ([Float::Public(_), ..], [Float::Public(_), ..]) => x
+                .iter()
+                .zip(y)
+                .map(|(x, y)| {
+                    Ok(Float::Public(
+                        x.as_public().ok_or(Error::UnexpectedValue)? * y.as_public().unwrap(),
+                    ))
+                })
+                .collect::<Result<Vec<Float>>>(),
+            ([Float::Secret(_), ..], [Float::Secret(_), ..]) => {
+                let triples = (0..x.len())
+                    .map(|_| {
+                        self.triple_provider
+                            .mul_triple()
+                            .ok_or(Error::BeaverTripleError)
+                    })
+                    .collect::<Result<Vec<(u64, u64, u64)>>>()?;
+                let d_shares = x
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(x, (a, _, _))| {
+                        Ok(Share::Arithmetic(
+                            x.as_u64().ok_or(Error::UnexpectedValue)?.wrapping_sub(*a),
+                        ))
+                    })
+                    .collect::<Result<Vec<Share>>>()?;
+                let e_shares = y
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(y, (_, b, _))| {
+                        Ok(Share::Arithmetic(
+                            y.as_u64().ok_or(Error::UnexpectedValue)?.wrapping_sub(*b),
+                        ))
+                    })
+                    .collect::<Result<Vec<Share>>>()?;
+                let ds = self.reveal_vec(d_shares)?;
+                let es = self.reveal_vec(e_shares)?;
+
+                let res = if self.id == PARTY_0 {
+                    izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Ok(Integer::Secret(Share::Arithmetic(
+                                c.wrapping_add(
+                                    d.wrapping_mul(y.as_u64().ok_or(Error::UnexpectedValue)?),
+                                )
+                                .wrapping_add(
+                                    e.wrapping_mul(x.as_u64().ok_or(Error::UnexpectedValue)?),
+                                )
+                                .wrapping_sub(d.wrapping_mul(e)),
+                            )))
+                        })
+                        .collect::<Result<Vec<Integer>>>()?
+                } else {
+                    izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Ok(Integer::Secret(Share::Arithmetic(
+                                c.wrapping_add(
+                                    d.wrapping_mul(y.as_u64().ok_or(Error::UnexpectedValue)?),
+                                )
+                                .wrapping_add(
+                                    e.wrapping_mul(x.as_u64().ok_or(Error::UnexpectedValue)?),
+                                ),
+                            )))
+                        })
+                        .collect::<Result<Vec<Integer>>>()?
+                };
+
+                // truncate after mul
+                res.into_iter()
+                    .map(|e| {
+                        Ok(Float::Secret(
+                            self.div(e, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?
+                                .as_u64(),
+                        ))
+                    })
+                    .collect::<Result<Vec<Float>>>()
+            }
+            (x @ [Float::Secret(_), ..], y @ [Float::Public(_), ..])
+            | (y @ [Float::Public(_), ..], x @ [Float::Secret(_), ..]) => {
+                let res = x
+                    .iter()
+                    .zip(y)
+                    .map(|(x, y)| {
+                        Ok(Integer::Secret(Share::Arithmetic(
+                            x.as_u64().unwrap().wrapping_mul(
+                                y.as_public().ok_or(Error::UnexpectedValue)?.embed()?,
+                            ),
+                        )))
+                    })
+                    .collect::<Result<Vec<Integer>>>()?;
+                // truncate after mul
+                res.into_iter()
+                    .map(|e| {
+                        Ok(Float::Secret(
+                            self.div(e, Integer::Public(1u64 << FIXED_POINT_INTEGER_PART))?
+                                .as_u64(),
+                        ))
+                    })
+                    .collect::<Result<Vec<Float>>>()
+            }
+            _ => Err(Error::EmptyVec),
+        }
+    }
+
     pub fn div(&mut self, x: Integer, y: Integer) -> Result<Integer> {
         debug!("div x = {x:?} y = {y:?}");
         match (x, y) {
@@ -582,6 +784,77 @@ impl<C: Channel> MPCExecutor<C> {
     pub fn andi(&mut self, x: Integer, imm: i32) -> Result<Integer> {
         debug!("andi x = {x:?} imm = {imm}");
         self.and(x, Integer::Public(imm as u64))
+    }
+
+    pub fn vand(&mut self, x: &[Integer], y: &[Integer]) -> Result<Vec<Integer>> {
+        debug!("vand x = {x:?} y = {y:?}");
+        match (x, y) {
+            ([Integer::Public(_), ..], [Integer::Public(_), ..]) => x
+                .iter()
+                .zip(y)
+                .map(|(x, y)| {
+                    Ok(Integer::Public(
+                        x.as_public().ok_or(Error::UnexpectedValue)?
+                            & y.as_public().ok_or(Error::UnexpectedValue)?,
+                    ))
+                })
+                .collect::<Result<Vec<Integer>>>(),
+            ([Integer::Secret(Share::Binary(_)), ..], [Integer::Secret(Share::Binary(_)), ..]) => {
+                let triples = (0..x.len())
+                    .map(|_| {
+                        self.triple_provider
+                            .and_triple()
+                            .ok_or(Error::BeaverTripleError)
+                    })
+                    .collect::<Result<Vec<(u64, u64, u64)>>>()?;
+                let d_shares = x
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(x, (a, _, _))| Share::Binary(x.as_u64() ^ *a))
+                    .collect::<Vec<Share>>();
+                let e_shares = y
+                    .iter()
+                    .zip(triples.iter())
+                    .map(|(y, (_, b, _))| Share::Binary(y.as_u64() ^ *b))
+                    .collect::<Vec<Share>>();
+                let ds = self.reveal_vec(d_shares)?;
+                let es = self.reveal_vec(e_shares)?;
+
+                if self.id == PARTY_0 {
+                    Ok(izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Integer::Secret(Share::Binary(
+                                (d & y.as_u64()) ^ (e & x.as_u64()) ^ (e & d) ^ c,
+                            ))
+                        })
+                        .collect::<Vec<Integer>>())
+                } else {
+                    Ok(izip!(x, y, ds, es, triples)
+                        .map(|(x, y, d, e, (_, _, c))| {
+                            Integer::Secret(Share::Binary((d & y.as_u64()) ^ (e & x.as_u64()) ^ c))
+                        })
+                        .collect::<Vec<Integer>>())
+                }
+            }
+            ([Integer::Secret(Share::Binary(_)), ..], [Integer::Public(_), ..])
+            | ([Integer::Public(_), ..], [Integer::Secret(Share::Binary(_)), ..]) => Ok(x
+                .iter()
+                .zip(y)
+                .map(|(x, y)| Integer::Secret(Share::Binary(x.as_u64() & y.as_u64())))
+                .collect::<Vec<Integer>>()),
+
+            _ => {
+                let x = x
+                    .iter()
+                    .map(|e| self.a2b(*e))
+                    .collect::<Result<Vec<Integer>>>()?;
+                let y = y
+                    .iter()
+                    .map(|e| self.a2b(*e))
+                    .collect::<Result<Vec<Integer>>>()?;
+                self.vand(&x, &y)
+            }
+        }
     }
 
     pub fn or(&mut self, x: Integer, y: Integer) -> Result<Integer> {
@@ -997,6 +1270,42 @@ mod tests {
             let (x0, x1) = inputs($x.into());
             let party0 = thread::spawn(move || run(0, ch0, x0, $expected));
             let party1 = thread::spawn(move || run(1, ch1, x1, $expected));
+            party0.join().unwrap();
+            party1.join().unwrap();
+        }};
+    }
+
+    macro_rules! test_vec {
+        ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
+            let run = |id: usize,
+                       mut ch: ThreadChannel,
+                       x: &[Value],
+                       y: &[Value],
+                       expected: &[Output]| {
+                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
+                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
+                let values = $f(
+                    &mut executor,
+                    &x.iter()
+                        .map(|x| (*x).try_into())
+                        .collect::<Result<Vec<_>>>()
+                        .unwrap(),
+                    &y.iter()
+                        .map(|y| (*y).try_into())
+                        .collect::<Result<Vec<_>>>()
+                        .unwrap(),
+                )
+                .unwrap();
+                for (value, expected) in values.into_iter().zip(expected) {
+                    verify(value.into(), *expected, &mut executor);
+                }
+            };
+
+            let (ch0, ch1) = create_channels();
+            let (x0, x1): (Vec<Value>, Vec<Value>) = $x.iter().map(|x| inputs((*x).into())).unzip();
+            let (y0, y1): (Vec<Value>, Vec<Value>) = $y.iter().map(|y| inputs((*y).into())).unzip();
+            let party0 = thread::spawn(move || run(0, ch0, &x0, &y0, &$expected));
+            let party1 = thread::spawn(move || run(1, ch1, &x1, &y1, &$expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};
@@ -1621,5 +1930,104 @@ mod tests {
     fn fcvtdlu_secret() {
         let x = Integer::Secret(Share::Arithmetic(3));
         test!(MPCExecutor::fcvtdlu, x, 3.0.into());
+    }
+
+    #[test]
+    fn vmul_public_public() {
+        let x = [Integer::Public(3), Integer::Public(2)];
+        let y = [Integer::Public(5), Integer::Public(3)];
+        let expected = [15.into(), 6.into()];
+        test_vec!(MPCExecutor::vmul, x, y, expected);
+    }
+
+    #[test]
+    fn vmul_secret_public() {
+        let x = [
+            Integer::Secret(Share::Arithmetic(3)),
+            Integer::Secret(Share::Arithmetic(2)),
+        ];
+        let y = [Integer::Public(5), Integer::Public(3)];
+        let expected = [15.into(), 6.into()];
+        test_vec!(MPCExecutor::vmul, x, y, expected);
+    }
+
+    #[test]
+    fn vmul_secret_secret() {
+        let x = [
+            Integer::Secret(Share::Arithmetic(3)),
+            Integer::Secret(Share::Arithmetic(2)),
+        ];
+        let y = [
+            Integer::Secret(Share::Arithmetic(5)),
+            Integer::Secret(Share::Arithmetic(3)),
+        ];
+        let expected = [15.into(), 6.into()];
+        test_vec!(MPCExecutor::vmul, x, y, expected);
+    }
+
+    #[test]
+    fn vfmul_public_public() {
+        let x = [Float::Public(3.0), Float::Public(2.0)];
+        let y = [Float::Public(5.0), Float::Public(3.0)];
+        let expected = [15.0.into(), 6.0.into()];
+        test_vec!(MPCExecutor::vfmul, x, y, expected);
+    }
+
+    #[test]
+    fn vfmul_secret_public() {
+        let x = [
+            Float::Secret(3.0.embed().unwrap()),
+            Float::Secret(2.0.embed().unwrap()),
+        ];
+        let y = [Float::Public(5.0), Float::Public(3.0)];
+        let expected = [15.0.into(), 6.0.into()];
+        test_vec!(MPCExecutor::vfmul, x, y, expected);
+    }
+
+    #[test]
+    fn vfmul_secret_secret() {
+        let x = [
+            Float::Secret(3.0.embed().unwrap()),
+            Float::Secret(2.0.embed().unwrap()),
+        ];
+        let y = [
+            Float::Secret(5.0.embed().unwrap()),
+            Float::Secret(3.0.embed().unwrap()),
+        ];
+        let expected = [15.0.into(), 6.0.into()];
+        test_vec!(MPCExecutor::vfmul, x, y, expected);
+    }
+
+    #[test]
+    fn vand_public_public() {
+        let x = [Integer::Public(0x4), Integer::Public(0xa)];
+        let y = [Integer::Public(0x6), Integer::Public(0x8)];
+        let expected = [0x4.into(), 0x8.into()];
+        test_vec!(MPCExecutor::vand, x, y, expected);
+    }
+
+    #[test]
+    fn vand_secret_public() {
+        let x = [
+            Integer::Secret(Share::Binary(0x4)),
+            Integer::Secret(Share::Binary(0xa)),
+        ];
+        let y = [Integer::Public(0x6), Integer::Public(0x8)];
+        let expected = [0x4.into(), 0x8.into()];
+        test_vec!(MPCExecutor::vand, x, y, expected);
+    }
+
+    #[test]
+    fn vand_secret_secret() {
+        let x = [
+            Integer::Secret(Share::Binary(0x4)),
+            Integer::Secret(Share::Binary(0xa)),
+        ];
+        let y = [
+            Integer::Secret(Share::Binary(0x6)),
+            Integer::Secret(Share::Binary(0x8)),
+        ];
+        let expected = [0x4.into(), 0x8.into()];
+        test_vec!(MPCExecutor::vand, x, y, expected);
     }
 }

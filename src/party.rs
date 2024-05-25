@@ -65,6 +65,7 @@ impl<C: Channel> PartyBuilder<C> {
             n_and_triples: 0,
         }
     }
+
     /// Set a [`Register`] to a given [`Input`].
     pub fn register(mut self, register: Register, input: Input) -> Result<PartyBuilder<C>> {
         match input {

@@ -7,8 +7,8 @@ use crate::{
     program::Program,
     registers::{FRegisters, Register, VRegisters, XRegister, XRegisters},
     triple_provider::TripleProvider,
-    types::{Float, Input, Integer, Output, Value},
-    Share, U64_BYTES,
+    types::{Float, Integer, Value},
+    FRegister, Share, U64_BYTES,
 };
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -66,52 +66,56 @@ impl<C: Channel> PartyBuilder<C> {
         }
     }
 
-    /// Set a [`Register`] to a given [`Input`].
-    pub fn register(mut self, register: Register, input: Input) -> Result<PartyBuilder<C>> {
-        match input {
-            Input::Integer(Integer::Public(x)) => {
-                self.x_registers
-                    .set(register.try_into()?, Integer::Public(x));
-            }
-            Input::Integer(Integer::Secret(secret)) => {
+    /// Set a [`XRegister`] to a given [`Integer`].
+    pub fn register_u64(mut self, register: XRegister, integer: Integer) -> PartyBuilder<C> {
+        match integer {
+            Integer::Secret(secret) => {
                 let (share0, share1) = x_to_shares(secret);
-                self.x_registers
-                    .set(register.try_into()?, Integer::Secret(share0));
-                self.secret_inputs
-                    .push((Location::Register(register), Integer::Secret(share1).into()));
-            }
-            Input::Float(Float::Public(x)) => {
-                self.f_registers.set(register.try_into()?, Float::Public(x))
-            }
-            Input::Float(Float::Secret(secret)) => {
-                let (share0, share1) = x_to_shares(Share::Arithmetic(secret));
-                self.f_registers
-                    .set(register.try_into()?, Float::Secret(share0.into()));
+                self.x_registers.set(register, Integer::Secret(share0));
                 self.secret_inputs.push((
-                    Location::Register(register),
+                    Location::Register(register.into()),
+                    Integer::Secret(share1).into(),
+                ));
+            }
+            Integer::Public(_) => self.x_registers.set(register, integer),
+        }
+        self
+    }
+
+    /// Set a [`FRegister`] to a given [`Float`].
+    pub fn register_f64(mut self, register: FRegister, float: Float) -> PartyBuilder<C> {
+        match float {
+            Float::Secret(secret) => {
+                let (share0, share1) = x_to_shares(Share::Arithmetic(secret));
+                self.f_registers.set(register, Float::Secret(share0.into()));
+                self.secret_inputs.push((
+                    Location::Register(register.into()),
                     Float::Secret(share1.into()).into(),
                 ));
             }
+            Float::Public(_) => self.f_registers.set(register, float),
         }
-        Ok(self)
+        self
     }
 
-    /// Set a [`Address`] to a given [`Input`].
-    pub fn address(mut self, address: Address, input: Input) -> Result<PartyBuilder<C>> {
-        match input {
-            Input::Integer(Integer::Public(x)) => {
-                self.memory.store(address, Integer::Public(x).into())?;
-            }
-            Input::Integer(Integer::Secret(secret)) => {
+    /// Set a [`Address`] to a given [`Integer`].
+    pub fn address_u64(mut self, address: Address, integer: Integer) -> Result<PartyBuilder<C>> {
+        match integer {
+            Integer::Secret(secret) => {
                 let (share0, share1) = x_to_shares(secret);
                 self.memory.store(address, Integer::Secret(share0).into())?;
                 self.secret_inputs
                     .push((Location::Address(address), Integer::Secret(share1).into()));
             }
-            Input::Float(Float::Public(x)) => {
-                self.memory.store(address, Float::Public(x).into())?;
-            }
-            Input::Float(Float::Secret(secret)) => {
+            Integer::Public(_) => self.memory.store(address, integer.into())?,
+        }
+        Ok(self)
+    }
+
+    /// Set a [`Address`] to a given [`Float`].
+    pub fn address_f64(mut self, address: Address, float: Float) -> Result<PartyBuilder<C>> {
+        match float {
+            Float::Secret(secret) => {
                 let (share0, share1) = x_to_shares(Share::Arithmetic(secret));
                 self.memory
                     .store(address, Float::Secret(share0.into()).into())?;
@@ -120,20 +124,35 @@ impl<C: Channel> PartyBuilder<C> {
                     Float::Secret(share1.into()).into(),
                 ));
             }
+            Float::Public(_) => self.memory.store(address, float.into())?,
         }
         Ok(self)
     }
 
-    /// Set a [`Address`] range to a given [`Vec<Input>`].
+    /// Set a [`Address`] range to a given [`Vec<Integer>`].
     /// The range is determined by the base `address` and ```inputs.len() * U64_BYTES```.
-    pub fn address_range(
+    pub fn address_range_u64(
         mut self,
         address: Address,
-        inputs: Vec<Input>,
+        integers: Vec<Integer>,
     ) -> Result<PartyBuilder<C>> {
-        for (i, input) in inputs.into_iter().enumerate() {
+        for (i, integer) in integers.into_iter().enumerate() {
             let address = address + i as u64 * U64_BYTES;
-            self = self.address(address, input)?;
+            self = self.address_u64(address, integer)?;
+        }
+        Ok(self)
+    }
+
+    /// Set a [`Address`] range to a given [`Vec<Float>`].
+    /// The range is determined by the base `address` and ```inputs.len() * U64_BYTES```.
+    pub fn address_range_f64(
+        mut self,
+        address: Address,
+        floats: Vec<Float>,
+    ) -> Result<PartyBuilder<C>> {
+        for (i, float) in floats.into_iter().enumerate() {
+            let address = address + i as u64 * U64_BYTES;
+            self = self.address_f64(address, float)?;
         }
         Ok(self)
     }
@@ -227,86 +246,136 @@ pub struct Party<C: Channel> {
 }
 
 impl<C: Channel> Party<C> {
-    /// Open the secret value or get the public value as [`Output`] from the given [`Register`].
-    pub fn register(&mut self, register: Register) -> Result<Output> {
-        let value = match register {
-            Register::Integer(x) => self.x_registers.get(x).into(),
-            Register::Float(f) => self.f_registers.get(f).into(),
-        };
-        self.open(value)
+    /// Open secret value or get public value as [`u64`] in given [`Register`].
+    pub fn register_u64(&mut self, register: XRegister) -> Result<u64> {
+        match self.x_registers.get(register) {
+            Integer::Public(x) => Ok(x),
+            Integer::Secret(share) => self.executor.reveal(share),
+        }
     }
 
-    /// Open the secret value (only for [`Party`] with given `id`) or get the public value as [`Output`] from the given [`Register`].
-    pub fn register_for(&mut self, register: Register, id: usize) -> Result<Option<Output>> {
-        let value = match register {
-            Register::Integer(x) => self.x_registers.get(x).into(),
-            Register::Float(f) => self.f_registers.get(f).into(),
-        };
-        self.open_for(value, id)
+    /// Open secret value (only for [`Party`] with given `id`) or get public value as [`Option<u64>`] in given [`Register`].
+    /// Other party will receive [`None`].
+    pub fn register_for_u64(&mut self, register: XRegister, id: usize) -> Result<Option<u64>> {
+        match self.x_registers.get(register) {
+            Integer::Public(x) => Ok(Some(x)),
+            Integer::Secret(share) => self.executor.reveal_for(share, id),
+        }
     }
 
-    /// Open the secret value or get the public value as [`Output`] from the given [`Address`].
-    pub fn address(&mut self, address: Address) -> Result<Output> {
-        let value = self.memory.load(address)?;
-        self.open(value)
+    /// Open secret value or get public value as [`f64`] in given [`Register`].
+    pub fn register_f64(&mut self, register: FRegister) -> Result<f64> {
+        match self.f_registers.get(register) {
+            Float::Public(f) => Ok(f),
+            Float::Secret(share) => self
+                .executor
+                .reveal(Share::Arithmetic(share))?
+                .to_fixed_point(),
+        }
     }
 
-    /// Open the secret value (only for [`Party`] with given `id`) or get the public value as [`Output`] from the given [`Address`].
-    pub fn address_for(&mut self, address: Address, id: usize) -> Result<Option<Output>> {
-        let value = self.memory.load(address)?;
-        self.open_for(value, id)
+    /// Open secret value (only for [`Party`] with given `id`) or get public value as [`Option<f64>`] in given [`Register`].
+    /// Other party will receive [`None`].
+    pub fn register_for_f64(&mut self, register: FRegister, id: usize) -> Result<Option<f64>> {
+        match self.f_registers.get(register) {
+            Float::Public(f) => Ok(Some(f)),
+            Float::Secret(share) => self
+                .executor
+                .reveal_for(Share::Arithmetic(share), id)?
+                .map(ToFixedPoint::to_fixed_point)
+                .transpose(),
+        }
     }
 
-    /// Open all secret values or get the public values in the given [`Range<Address>`].
-    pub fn address_range(&mut self, range: Range<Address>) -> Result<Vec<Output>> {
+    /// Open secret value or get public value as [`u64`] at given [`Address`].
+    pub fn address_u64(&mut self, address: Address) -> Result<u64> {
+        match self.memory.load(address)? {
+            Value::Integer(Integer::Public(x)) => Ok(x),
+            Value::Integer(Integer::Secret(share)) => self.executor.reveal(share),
+            _ => Err(Error::UnexpectedValue),
+        }
+    }
+
+    /// Open secret value (only for [`Party`] with given `id`) or get public value as [`Option<u64>`] at given [`Address`].
+    /// Other party will receive [`None`].
+    pub fn address_for_u64(&mut self, address: Address, id: usize) -> Result<Option<u64>> {
+        match self.memory.load(address)? {
+            Value::Integer(Integer::Public(x)) => Ok(Some(x)),
+            Value::Integer(Integer::Secret(share)) => self.executor.reveal_for(share, id),
+            _ => Err(Error::UnexpectedValue),
+        }
+    }
+
+    /// Open secret value or get public value as [`f64`] at given [`Address`].
+    pub fn address_f64(&mut self, address: Address) -> Result<f64> {
+        match self.memory.load(address)? {
+            Value::Float(Float::Public(f)) => Ok(f),
+            Value::Float(Float::Secret(share)) => self
+                .executor
+                .reveal(Share::Arithmetic(share))?
+                .to_fixed_point(),
+            _ => Err(Error::UnexpectedValue),
+        }
+    }
+
+    /// Open secret value (only for [`Party`] with given `id`) or get public value as [`Option<f64>`] at given [`Address`].
+    /// Other party will receive [`None`].
+    pub fn address_for_f64(&mut self, address: Address, id: usize) -> Result<Option<f64>> {
+        match self.memory.load(address)? {
+            Value::Float(Float::Public(f)) => Ok(Some(f)),
+            Value::Float(Float::Secret(share)) => self
+                .executor
+                .reveal_for(Share::Arithmetic(share), id)?
+                .map(ToFixedPoint::to_fixed_point)
+                .transpose(),
+            _ => Err(Error::UnexpectedValue),
+        }
+    }
+
+    /// Open all secret values or get public values in given [`Range<Address>`] as [`Vec<u64>`].
+    pub fn address_range_u64(&mut self, range: Range<Address>) -> Result<Vec<u64>> {
         debug!("open address range = {range:?}");
         range
             .step_by(8)
-            .map(|address| self.address(address))
+            .map(|address| self.address_u64(address))
             .collect()
     }
 
-    /// Open all secret values or get the public values in the given [`Range<Address>`] only for [`Party`].
-    pub fn address_range_for(
+    /// Open all secret values (only for [`Party`] with given `id`) or get public values in given [`Range<Address>`] as [`Vec<u64>`].
+    /// Other party will receive [`None`].
+    pub fn address_range_u64_for(
         &mut self,
         range: Range<Address>,
         id: usize,
-    ) -> Result<Option<Vec<Output>>> {
+    ) -> Result<Option<Vec<u64>>> {
         debug!("open address range = {range:?}");
         range
             .step_by(8)
-            .map(|address| self.address_for(address, id))
+            .map(|address| self.address_for_u64(address, id))
             .collect()
     }
 
-    fn open(&mut self, value: Value) -> Result<Output> {
-        match value {
-            Value::Integer(Integer::Public(x)) => Ok(x.into()),
-            Value::Integer(Integer::Secret(share)) => self.executor.reveal(share).map(Output::from),
-            Value::Float(Float::Public(x)) => Ok(x.into()),
-            Value::Float(Float::Secret(share)) => Ok(self
-                .executor
-                .reveal(Share::Arithmetic(share))?
-                .to_fixed_point()?
-                .into()),
-        }
+    /// Open all secret values or get public values in given [`Range<Address>`] as [`Vec<f64>`].
+    pub fn address_range_f64(&mut self, range: Range<Address>) -> Result<Vec<f64>> {
+        debug!("open address range = {range:?}");
+        range
+            .step_by(8)
+            .map(|address| self.address_f64(address))
+            .collect()
     }
 
-    fn open_for(&mut self, value: Value, id: usize) -> Result<Option<Output>> {
-        match value {
-            Value::Integer(Integer::Public(x)) => Ok(Some(x.into())),
-            Value::Integer(Integer::Secret(share)) => {
-                Ok(self.executor.reveal_for(share, id)?.map(Output::from))
-            }
-            Value::Float(Float::Public(x)) => Ok(Some(x.into())),
-            Value::Float(Float::Secret(share)) => {
-                if let Some(x) = self.executor.reveal_for(Share::Arithmetic(share), id)? {
-                    Ok(Some(x.to_fixed_point()?.into()))
-                } else {
-                    Ok(None)
-                }
-            }
-        }
+    /// Open all secret values (only for [`Party`] with given `id`) or get public values in given [`Range<Address>`] as [`Vec<f64>`].
+    /// Other party will receive [`None`].
+    pub fn address_range_for_f64(
+        &mut self,
+        range: Range<Address>,
+        id: usize,
+    ) -> Result<Option<Vec<f64>>> {
+        debug!("open address range = {range:?}");
+        range
+            .step_by(8)
+            .map(|address| self.address_for_f64(address, id))
+            .collect()
     }
 
     fn update_pc(&mut self, base: u64, offset: i32) {
@@ -1156,10 +1225,10 @@ mod tests {
         let (ch0, ch1) = create_channels();
         let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(XRegister::x10.into(), Integer::Public(5).into())?
+                .register_u64(XRegister::x10, Integer::Public(5))
                 .build()?;
             party.execute(&program.parse()?)?;
-            party.register(XRegister::x10.into())?.try_into()
+            party.register_u64(XRegister::x10)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0));
@@ -1207,10 +1276,10 @@ mod tests {
         let (ch0, ch1) = create_channels();
         let run = move |id: usize, ch: ThreadChannel| -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(XRegister::x10.into(), Integer::Public(10).into())?
+                .register_u64(XRegister::x10, Integer::Public(10))
                 .build()?;
             party.execute(&program.parse()?)?;
-            party.register(XRegister::x10.into())?.try_into()
+            party.register_u64(XRegister::x10)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0));
@@ -1285,31 +1354,24 @@ mod tests {
                         set_address: u64|
               -> Result<Vec<u64>> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(XRegister::x10.into(), Integer::Public(set0_address).into())?
-                .register(XRegister::x11.into(), Integer::Public(set0_len).into())?
-                .register(XRegister::x12.into(), Integer::Public(set1_address).into())?
-                .register(XRegister::x13.into(), Integer::Public(set1_len).into())?
-                .register(
-                    XRegister::x14.into(),
-                    Integer::Public(intersection_addr).into(),
-                )?
-                .address_range(
+                .register_u64(XRegister::x10, Integer::Public(set0_address))
+                .register_u64(XRegister::x11, Integer::Public(set0_len))
+                .register_u64(XRegister::x12, Integer::Public(set1_address))
+                .register_u64(XRegister::x13, Integer::Public(set1_len))
+                .register_u64(XRegister::x14, Integer::Public(intersection_addr))
+                .address_range_u64(
                     set_address,
                     set.iter()
-                        .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                        .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                         .collect(),
                 )?
                 .build()?;
 
             party.execute(&program.parse()?)?;
 
-            let len: u64 = party.register(XRegister::x10.into())?.try_into()?;
+            let len = party.register_u64(XRegister::x10)?;
 
-            party
-                .address_range(intersection_addr..intersection_addr + U64_BYTES * len)?
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<u64>>>()
+            party.address_range_u64(intersection_addr..intersection_addr + U64_BYTES * len)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0, set0, set0_address));
@@ -1393,22 +1455,22 @@ mod tests {
                         salaries_address: u64|
               -> Result<u64> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(XRegister::x10.into(), Integer::Public(sal0_addr).into())?
-                .register(XRegister::x11.into(), Integer::Public(sal0_len).into())?
-                .register(XRegister::x12.into(), Integer::Public(sal1_addr).into())?
-                .register(XRegister::x13.into(), Integer::Public(sal1_len).into())?
-                .address_range(
+                .register_u64(XRegister::x10, Integer::Public(sal0_addr))
+                .register_u64(XRegister::x11, Integer::Public(sal0_len))
+                .register_u64(XRegister::x12, Integer::Public(sal1_addr))
+                .register_u64(XRegister::x13, Integer::Public(sal1_len))
+                .address_range_u64(
                     salaries_address,
                     salaries
                         .iter()
-                        .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                        .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                         .collect(),
                 )?
                 .build()?;
 
             party.execute(&program.parse::<Program>()?.with_entry("mean")?)?;
 
-            party.register(XRegister::x10.into())?.try_into()
+            party.register_u64(XRegister::x10)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0, &salaries0, sal0_addr));
@@ -1508,33 +1570,29 @@ mod tests {
         let run = move |id: usize, ch: ThreadChannel| -> Result<Vec<u64>> {
             let mut party = if id == PARTY_0 {
                 PartyBuilder::new(id, ch)
-                    .register(XRegister::x10.into(), Integer::Public(0x0).into())?
-                    .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 5).into())?
-                    .register(XRegister::x12.into(), Integer::Public(0x1f).into())?
-                    .address_range(
+                    .register_u64(XRegister::x10, Integer::Public(0x0))
+                    .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
+                    .register_u64(XRegister::x12, Integer::Public(0x1f))
+                    .address_range_u64(
                         U64_BYTES * 5,
                         vec![
-                            Integer::Secret(Share::Binary(0x0123456789abcdef)).into(),
-                            Integer::Secret(Share::Binary(0x23456789abcdef01)).into(),
-                            Integer::Secret(Share::Binary(0x456789abcdef0123)).into(),
-                            Integer::Secret(Share::Binary(0x6789abcdef012345)).into(),
-                            Integer::Secret(Share::Binary(0x89abcde01234567f)).into(),
+                            Integer::Secret(Share::Binary(0x0123456789abcdef)),
+                            Integer::Secret(Share::Binary(0x23456789abcdef01)),
+                            Integer::Secret(Share::Binary(0x456789abcdef0123)),
+                            Integer::Secret(Share::Binary(0x6789abcdef012345)),
+                            Integer::Secret(Share::Binary(0x89abcde01234567f)),
                         ],
                     )?
                     .build()?
             } else {
                 PartyBuilder::new(id, ch)
-                    .register(XRegister::x10.into(), Integer::Public(0x0).into())?
-                    .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 5).into())?
-                    .register(XRegister::x12.into(), Integer::Public(0x1f).into())?
+                    .register_u64(XRegister::x10, Integer::Public(0x0))
+                    .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
+                    .register_u64(XRegister::x12, Integer::Public(0x1f))
                     .build()?
             };
             party.execute(&program.parse()?)?;
-            party
-                .address_range(0x0..U64_BYTES * 5)?
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<u64>>>()
+            party.address_range_u64(0x0..U64_BYTES * 5)
         };
 
         let party0 = thread::spawn(move || run(PARTY_0, ch0));
@@ -1575,23 +1633,20 @@ mod tests {
                         vec_address: u64|
               -> Result<Vec<u64>> {
             let mut party = PartyBuilder::new(id, ch)
-                .register(XRegister::x10.into(), Integer::Public(0x0).into())?
-                .register(XRegister::x11.into(), Integer::Public(U64_BYTES * 4).into())?
-                .register(XRegister::x12.into(), Integer::Public(U64_BYTES * 8).into())?
-                .register(XRegister::x13.into(), Integer::Public(4).into())?
-                .address_range(
+                .register_u64(XRegister::x10, Integer::Public(0x0))
+                .register_u64(XRegister::x10, Integer::Public(0x0))
+                .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 4))
+                .register_u64(XRegister::x12, Integer::Public(U64_BYTES * 8))
+                .register_u64(XRegister::x13, Integer::Public(4))
+                .address_range_u64(
                     vec_address,
                     vec.iter()
-                        .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                        .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                         .collect(),
                 )?
                 .build()?;
             party.execute(&program.parse()?)?;
-            party
-                .address_range(U64_BYTES * 8..U64_BYTES * 12)?
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<u64>>>()
+            party.address_range_u64(U64_BYTES * 8..U64_BYTES * 12)
         };
         let vec0 = vec![2, 2, 2, 4];
         let vec1 = vec![2, 4, 8, 8];

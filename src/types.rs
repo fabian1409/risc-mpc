@@ -45,6 +45,13 @@ impl Integer {
             _ => None,
         }
     }
+
+    pub fn as_secret(&self) -> Option<Share> {
+        match self {
+            Integer::Secret(share) => Some(*share),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Integer {
@@ -64,10 +71,10 @@ pub enum Float {
 }
 
 impl Float {
-    pub fn as_u64(&self) -> Option<u64> {
+    pub fn as_secret(&self) -> Option<u64> {
         match self {
             Float::Secret(x) => Some(*x),
-            Float::Public(_) => None,
+            _ => None,
         }
     }
 
@@ -141,71 +148,5 @@ impl From<Integer> for Value {
 impl From<Float> for Value {
     fn from(value: Float) -> Self {
         Value::Float(value)
-    }
-}
-
-/// [`Input`] represents either a [`Integer`] or [`Float`] input.
-///
-/// [`Integer`]: Input::Integer
-/// [`Float`]: Input::Float
-#[derive(Debug, Clone, Copy)]
-pub enum Input {
-    Integer(Integer),
-    Float(Float),
-}
-
-impl From<Integer> for Input {
-    fn from(value: Integer) -> Self {
-        Input::Integer(value)
-    }
-}
-
-impl From<Float> for Input {
-    fn from(value: Float) -> Self {
-        Input::Float(value)
-    }
-}
-
-/// [`Output`] represents either a [`Integer`] or [`Float`] output.
-///
-/// [`Integer`]: Output::Integer
-/// [`Float`]: Output::Float
-#[derive(Debug, Clone, Copy)]
-pub enum Output {
-    Integer(u64),
-    Float(f64),
-}
-
-impl From<u64> for Output {
-    fn from(value: u64) -> Self {
-        Output::Integer(value)
-    }
-}
-
-impl From<f64> for Output {
-    fn from(value: f64) -> Self {
-        Output::Float(value)
-    }
-}
-
-impl TryInto<u64> for Output {
-    type Error = Error;
-
-    fn try_into(self) -> Result<u64> {
-        match self {
-            Output::Integer(x) => Ok(x),
-            Output::Float(_) => Err(Error::UnexpectedValue),
-        }
-    }
-}
-
-impl TryInto<f64> for Output {
-    type Error = Error;
-
-    fn try_into(self) -> Result<f64> {
-        match self {
-            Output::Integer(_) => Err(Error::UnexpectedValue),
-            Output::Float(x) => Ok(x),
-        }
     }
 }

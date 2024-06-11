@@ -43,22 +43,22 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_1, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_1, ch)
-        .register(XRegister::x10.into(), Integer::Public(0x0).into())? // salaries0 address
-        .register(XRegister::x11.into(), Integer::Public(k).into())? // salaries0 length
-        .register(XRegister::x12.into(), Integer::Public(U64_BYTES * k).into())? // salaries1 address
-        .register(XRegister::x13.into(), Integer::Public(n).into())? // salaries1 length
-        .address_range(
+        .register_u64(XRegister::x10, Integer::Public(0x0)) // salaries0 address
+        .register_u64(XRegister::x11, Integer::Public(k)) // salaries0 length
+        .register_u64(XRegister::x12, Integer::Public(U64_BYTES * k)) // salaries1 address
+        .register_u64(XRegister::x13, Integer::Public(n)) // salaries1 length
+        .address_range_u64(
             k * U64_BYTES,
             salaries
                 .iter()
-                .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                 .collect(),
         )?
         .build()?;
 
     party.execute(&program)?;
 
-    let mean: u64 = party.register(XRegister::x10.into())?.try_into()?;
+    let mean = party.register_u64(XRegister::x10)?;
 
     println!("mean = {mean}");
     Ok(())

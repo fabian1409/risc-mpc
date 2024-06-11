@@ -576,7 +576,9 @@ impl<C: Channel> MPCExecutor<C> {
                     .zip(triples.iter())
                     .map(|(x, (a, _, _))| {
                         Ok(Share::Arithmetic(
-                            x.as_u64().ok_or(Error::UnexpectedValue)?.wrapping_sub(*a),
+                            x.as_secret()
+                                .ok_or(Error::UnexpectedValue)?
+                                .wrapping_sub(*a),
                         ))
                     })
                     .collect::<Result<Vec<Share>>>()?;
@@ -585,7 +587,9 @@ impl<C: Channel> MPCExecutor<C> {
                     .zip(triples.iter())
                     .map(|(y, (_, b, _))| {
                         Ok(Share::Arithmetic(
-                            y.as_u64().ok_or(Error::UnexpectedValue)?.wrapping_sub(*b),
+                            y.as_secret()
+                                .ok_or(Error::UnexpectedValue)?
+                                .wrapping_sub(*b),
                         ))
                     })
                     .collect::<Result<Vec<Share>>>()?;
@@ -597,10 +601,10 @@ impl<C: Channel> MPCExecutor<C> {
                         .map(|(x, y, d, e, (_, _, c))| {
                             Ok(Integer::Secret(Share::Arithmetic(
                                 c.wrapping_add(
-                                    d.wrapping_mul(y.as_u64().ok_or(Error::UnexpectedValue)?),
+                                    d.wrapping_mul(y.as_secret().ok_or(Error::UnexpectedValue)?),
                                 )
                                 .wrapping_add(
-                                    e.wrapping_mul(x.as_u64().ok_or(Error::UnexpectedValue)?),
+                                    e.wrapping_mul(x.as_secret().ok_or(Error::UnexpectedValue)?),
                                 )
                                 .wrapping_sub(d.wrapping_mul(e)),
                             )))
@@ -611,10 +615,10 @@ impl<C: Channel> MPCExecutor<C> {
                         .map(|(x, y, d, e, (_, _, c))| {
                             Ok(Integer::Secret(Share::Arithmetic(
                                 c.wrapping_add(
-                                    d.wrapping_mul(y.as_u64().ok_or(Error::UnexpectedValue)?),
+                                    d.wrapping_mul(y.as_secret().ok_or(Error::UnexpectedValue)?),
                                 )
                                 .wrapping_add(
-                                    e.wrapping_mul(x.as_u64().ok_or(Error::UnexpectedValue)?),
+                                    e.wrapping_mul(x.as_secret().ok_or(Error::UnexpectedValue)?),
                                 ),
                             )))
                         })
@@ -638,7 +642,7 @@ impl<C: Channel> MPCExecutor<C> {
                     .zip(y)
                     .map(|(x, y)| {
                         Ok(Integer::Secret(Share::Arithmetic(
-                            x.as_u64().unwrap().wrapping_mul(
+                            x.as_secret().unwrap().wrapping_mul(
                                 y.as_public().ok_or(Error::UnexpectedValue)?.embed()?,
                             ),
                         )))
@@ -998,7 +1002,7 @@ impl<C: Channel> MPCExecutor<C> {
             | (Float::Secret(_), Float::Public(_))
             | (Float::Public(_), Float::Secret(_)) => {
                 let z_a = self.fsub(x, y)?;
-                let z_b = self.a2b(Integer::Secret(Share::Arithmetic(z_a.as_u64().unwrap())))?;
+                let z_b = self.a2b(Integer::Secret(Share::Arithmetic(z_a.as_secret().unwrap())))?;
                 self.rshift(z_b, Integer::Public(63))
             }
         }
@@ -1183,13 +1187,31 @@ impl<C: Channel> MPCExecutor<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::ThreadChannel;
     use crate::types::Value;
-    use crate::{channel::ThreadChannel, Output};
     use approx::assert_relative_eq;
     use std::{
         sync::mpsc::{self, Receiver, Sender},
         thread,
     };
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Output {
+        Integer(u64),
+        Float(f64),
+    }
+
+    impl From<u64> for Output {
+        fn from(value: u64) -> Self {
+            Output::Integer(value)
+        }
+    }
+
+    impl From<f64> for Output {
+        fn from(value: f64) -> Self {
+            Output::Float(value)
+        }
+    }
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
         let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
@@ -1224,8 +1246,10 @@ mod tests {
                     Integer::Secret(share) => executor.reveal(share).unwrap(),
                     Integer::Public(res) => res,
                 };
-                let expected: u64 = expected.try_into().unwrap();
-                assert_eq!(res, expected);
+                match expected {
+                    Output::Integer(expected) => assert_eq!(res, expected),
+                    _ => panic!("expected integer"),
+                }
             }
             Value::Float(float) => {
                 let res = match float {
@@ -1235,8 +1259,10 @@ mod tests {
                     }
                     Float::Public(res) => res,
                 };
-                let expected: f64 = expected.try_into().unwrap();
-                assert_relative_eq!(res, expected, epsilon = 10e-3);
+                match expected {
+                    Output::Float(expected) => assert_relative_eq!(res, expected, epsilon = 10e-3),
+                    _ => panic!("expected float"),
+                }
             }
         }
     }

@@ -53,18 +53,15 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_0, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_0, ch)
-        .register(XRegister::x10.into(), Integer::Public(0x0).into())? // set0 address
-        .register(XRegister::x11.into(), Integer::Public(n).into())? // set0 length
-        .register(XRegister::x12.into(), Integer::Public(U64_BYTES * n).into())? // set1 address
-        .register(XRegister::x13.into(), Integer::Public(k).into())? // set1 length
-        .register(
-            XRegister::x14.into(),
-            Integer::Public(U64_BYTES * (n + k)).into(),
-        )? // intersection address
-        .address_range(
+        .register_u64(XRegister::x10, Integer::Public(0x0)) // set0 address
+        .register_u64(XRegister::x11, Integer::Public(n)) // set0 length
+        .register_u64(XRegister::x12, Integer::Public(U64_BYTES * n)) // set1 address
+        .register_u64(XRegister::x13, Integer::Public(k)) // set1 length
+        .register_u64(XRegister::x14, Integer::Public(U64_BYTES * (n + k))) // intersection address
+        .address_range_u64(
             0x0,
             set.iter()
-                .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                 .collect(),
         )?
         .n_and_triples(CMP_AND_TRIPLES * 2 * (n + k)) // 2 lt per set element cmp
@@ -72,12 +69,9 @@ fn main() -> Result<()> {
 
     party.execute(&program)?;
 
-    let len: u64 = party.register(XRegister::x10.into())?.try_into()?;
-    let intersection = party
-        .address_range(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?
-        .into_iter()
-        .map(TryInto::try_into)
-        .collect::<Result<Vec<u64>>>()?;
+    let len = party.register_u64(XRegister::x10)?;
+    let intersection =
+        party.address_range_u64(U64_BYTES * (n + k)..U64_BYTES * (n + k) + U64_BYTES * len)?;
 
     println!("intersection = {intersection:?}");
     Ok(())

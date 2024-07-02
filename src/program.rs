@@ -83,8 +83,70 @@ impl FromStr for Program {
             .trim()
             .lines()
             .filter(|l| !l.starts_with('#') && !l.is_empty())
-            .map(|l| l.trim().parse())
+            .map(|l| l.trim())
+            .map(|l| {
+                // TODO this is a hack, maybe make instructions as var of Value and store them in mem to actually find the DWORDS there
+                if let Some(pos) = l.find("%pcrel_hi(") {
+                    let start = pos + "%pcrel_hi(".len();
+                    let end = l[start..].find(')').unwrap() + start;
+                    let label = &l[start..end];
+                    l.replace(&("%pcrel_hi(".to_string() + label + ")"), label)
+                } else if let Some(pos) = l.find("%pcrel_lo") {
+                    let start = pos + "%pcrel_lo(".len();
+                    let end = l[start..].find(')').unwrap() + start;
+                    let label = &l[start..end];
+                    let line = l
+                        .replace(&("%pcrel_lo(".to_string() + label + ")"), "")
+                        .replace(['(', ')'], "");
+                    if l.starts_with("ld") {
+                        line.replace("ld", "mv")
+                    } else if l.starts_with("fld") {
+                        line.replace("fld", "fmv.d.x")
+                    } else {
+                        panic!("unsupported assembler directive")
+                    }
+                } else if l.contains('%') {
+                    panic!("unsupported assembler directive")
+                } else {
+                    l.to_string()
+                }
+            })
+            .map(|l| l.parse())
             .collect::<Result<Vec<Instruction>>>()?;
         Ok(Program::new(instructions))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::XRegister;
+
+    #[test]
+    fn test_dword() {
+        let program = "
+            .LCPI2_0:
+                    .quad   3787428097924915520
+                    auipc   a0, %pcrel_hi(.LCPI2_0)
+                    ld      a0, %pcrel_lo(.Lpcrel_hi0)(a0)
+        "
+        .parse::<Program>()
+        .unwrap();
+
+        assert_eq!(
+            program.instructions,
+            vec![
+                Instruction::Label(Label::Text(".LCPI2_0".to_string())),
+                Instruction::DWORD(3787428097924915520),
+                Instruction::AUIPC {
+                    rd: XRegister::x10,
+                    label: Label::Text(".LCPI2_0".to_string())
+                },
+                Instruction::MV {
+                    rd: XRegister::x10,
+                    rs1: XRegister::x10,
+                }
+            ]
+        );
     }
 }

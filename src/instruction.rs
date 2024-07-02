@@ -68,7 +68,7 @@ pub enum Instruction {
     },
     AUIPC {
         rd: XRegister,
-        imm: i32,
+        label: Label,
     },
     BEQ {
         rs1: XRegister,
@@ -114,6 +114,7 @@ pub enum Instruction {
         offset: i32,
         rs1: XRegister,
     },
+    // TODO maybe Label instead of imm
     LUI {
         rd: XRegister,
         imm: i32,
@@ -258,10 +259,11 @@ pub enum Instruction {
     },
     RET,
     CALL {
-        label: Label,
+        rd: Option<XRegister>,
+        label: String,
     },
     TAIL {
-        label: Label,
+        label: String,
     },
     Label(Label),
     FADD {
@@ -456,6 +458,7 @@ pub enum Instruction {
         vs2: VRegister,
         // vm: VRegister,
     },
+    DWORD(u64),
 }
 
 fn parse_offset_rs1(s: &str) -> std::result::Result<(&str, &str), Error> {
@@ -561,7 +564,7 @@ impl FromStr for Instruction {
                 rs1: rs1.parse()?,
                 offset: offset.parse()?,
             }),
-            ("addi", [rd, rs1, imm]) => Ok(Self::ADDI {
+            ("addi" | "addiw", [rd, rs1, imm]) => Ok(Self::ADDI {
                 rd: rd.parse()?,
                 rs1: rs1.parse()?,
                 imm: imm.parse()?,
@@ -606,9 +609,9 @@ impl FromStr for Instruction {
                 rd: rd.parse()?,
                 imm: imm.parse()?,
             }),
-            ("auipc", [rd, imm]) => Ok(Self::AUIPC {
+            ("auipc", [rd, label]) => Ok(Self::AUIPC {
                 rd: rd.parse()?,
-                imm: imm.parse()?,
+                label: label.parse()?,
             }),
             ("nop", [""]) => Ok(Self::NOP),
             ("li", [rd, imm]) => Ok(Self::LI {
@@ -687,10 +690,15 @@ impl FromStr for Instruction {
             }),
             ("jr", [rs1]) => Ok(Self::JR { rs1: rs1.parse()? }),
             ("call", [label]) => Ok(Self::CALL {
-                label: label.parse()?,
+                rd: None,
+                label: label.to_string(),
+            }),
+            ("call", [rd, label]) => Ok(Self::CALL {
+                rd: Some(rd.parse()?),
+                label: label.to_string(),
             }),
             ("tail", [label]) => Ok(Self::TAIL {
-                label: label.parse()?,
+                label: label.to_string(),
             }),
             ("ret", [""]) => Ok(Self::RET),
             ("fadd.d", [rd, rs1, rs2]) => Ok(Self::FADD {
@@ -883,7 +891,17 @@ impl FromStr for Instruction {
                 vs2: vs2.parse()?,
             }),
             _ => {
-                if s.ends_with(':') {
+                if s.starts_with(".quad") {
+                    let dword = s.split_whitespace().last().unwrap();
+                    if dword.starts_with("0x") {
+                        Ok(Self::DWORD(u64::from_str_radix(
+                            dword.strip_prefix("0x").unwrap(),
+                            16,
+                        )?))
+                    } else {
+                        Ok(Self::DWORD(i64::from_str(dword)? as u64))
+                    }
+                } else if s.ends_with(':') {
                     Ok(Self::Label(s.strip_suffix(':').unwrap().parse()?))
                 } else {
                     Err(Error::ParseInstructionError(s.to_string()))
@@ -900,7 +918,7 @@ impl Display for Instruction {
             Instruction::ADDI { rd, rs1, imm } => write!(f, "addi {rd},{rs1},{imm}"),
             Instruction::AND { rd, rs1, rs2 } => write!(f, "and {rd},{rs1},{rs2}"),
             Instruction::ANDI { rd, rs1, imm } => write!(f, "andi {rd},{rs1},{imm}"),
-            Instruction::AUIPC { rd, imm } => write!(f, "auipc {rd},{imm}"),
+            Instruction::AUIPC { rd, label } => write!(f, "auipc {rd},{label}"),
             Instruction::BEQ { rs1, rs2, label } => write!(f, "beq {rs1},{rs2},{label}"),
             Instruction::BGE { rs1, rs2, label } => write!(f, "bge {rs1},{rs2},{label}"),
             Instruction::BLT { rs1, rs2, label } => write!(f, "blt {rs1},{rs2},{label}"),
@@ -944,7 +962,7 @@ impl Display for Instruction {
             Instruction::J { label } => write!(f, "j {label}"),
             Instruction::JR { rs1 } => write!(f, "jr {rs1}"),
             Instruction::RET => write!(f, "ret"),
-            Instruction::CALL { label } => write!(f, "call {label}"),
+            Instruction::CALL { rd: _, label } => write!(f, "call {label}"),
             Instruction::TAIL { label } => write!(f, "tail {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
             _ => todo!(),

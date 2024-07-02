@@ -119,6 +119,7 @@ mod tests {
     use std::{
         sync::mpsc::{self, Receiver, Sender},
         thread,
+        time::Instant,
     };
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
@@ -146,7 +147,9 @@ mod tests {
 
         let sender = thread::spawn(move || {
             let mut sender = OTSender::new(&mut ch0).unwrap();
+            let start = Instant::now();
             sender.send(&mut ch0, &inputs).unwrap();
+            println!("send took {}ms", start.elapsed().as_millis())
         });
         let receiver = thread::spawn(move || -> Vec<Block> {
             let mut receiver = OTReceiver::new(&mut ch1).unwrap();

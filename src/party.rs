@@ -378,15 +378,6 @@ impl<C: Channel> Party<C> {
             .collect()
     }
 
-    fn update_pc(&mut self, base: u64, offset: i32) {
-        debug!("update_pc base = {base} offset = {offset}");
-        if offset.is_negative() {
-            self.pc = base - offset.unsigned_abs() as u64;
-        } else {
-            self.pc = base + offset as u64;
-        }
-    }
-
     /// Execute the given [`Program`].
     pub fn execute(&mut self, program: &Program) -> Result<()> {
         let start = Instant::now();
@@ -526,15 +517,18 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::JAL { rd, label } => {
                     self.x_registers.set(*rd, Integer::Public(self.pc + 1));
-                    let address = program.offset(label, self.pc)?;
-                    self.update_pc(address, 0);
+                    self.pc = program.offset(label, self.pc)?;
                     self.call_depth += 1;
                 }
                 Instruction::JALR { rd, rs1, offset } => {
                     self.x_registers.set(*rd, Integer::Public(self.pc + 1));
                     let base = self.x_registers.get(*rs1);
                     if let Integer::Public(base) = base {
-                        self.update_pc(base, *offset);
+                        self.pc = if offset.is_positive() {
+                            base + offset.unsigned_abs() as u64
+                        } else {
+                            base - offset.unsigned_abs() as u64
+                        };
                         self.call_depth += 1;
                     } else {
                         return Err(Error::SecretValueAsAddress);
@@ -546,8 +540,7 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, rs2)?;
                     if eq {
                         debug!("beq taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BNE { rs1, rs2, label } => {
@@ -556,8 +549,7 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, rs2)?;
                     if !eq {
                         debug!("bne taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BLT { rs1, rs2, label } => {
@@ -566,8 +558,7 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, rs2)?;
                     if lt {
                         debug!("blt taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BGE { rs1, rs2, label } => {
@@ -576,8 +567,7 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, rs2)?;
                     if !lt {
                         debug!("bge taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::SLTI { rd, rs1, imm } => {
@@ -591,11 +581,6 @@ impl<C: Channel> Party<C> {
                         .set(*rd, Integer::Public((*imm as u64) << 12));
                 }
                 Instruction::AUIPC { rd, label } => {
-                    // let address = if imm.is_negative() {
-                    //     self.pc - ((imm.wrapping_abs() as u64) << 12)
-                    // } else {
-                    //     self.pc + ((*imm as u64) << 12)
-                    // };
                     let offset = program.offset(label, self.pc)?;
                     if let Some(Instruction::DWORD(dword)) =
                         program.instructions.get(offset as usize + 1)
@@ -659,8 +644,7 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, Integer::Public(0))?;
                     if eq {
                         debug!("beqz taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BNEZ { rs1, label } => {
@@ -668,8 +652,7 @@ impl<C: Channel> Party<C> {
                     let eq = self.executor.beq(rs1, Integer::Public(0))?;
                     if !eq {
                         debug!("bnez taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BLEZ { rs1, label } => {
@@ -677,8 +660,7 @@ impl<C: Channel> Party<C> {
                     let le = self.executor.ble(rs1, Integer::Public(0))?;
                     if le {
                         debug!("blez taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BGEZ { rs1, label } => {
@@ -686,8 +668,7 @@ impl<C: Channel> Party<C> {
                     let ge = self.executor.bge(rs1, Integer::Public(0))?;
                     if ge {
                         debug!("bgez taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BLTZ { rs1, label } => {
@@ -695,8 +676,7 @@ impl<C: Channel> Party<C> {
                     let lt = self.executor.blt(rs1, Integer::Public(0))?;
                     if lt {
                         debug!("bltz taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BGTZ { rs1, label } => {
@@ -704,8 +684,7 @@ impl<C: Channel> Party<C> {
                     let gt = self.executor.bgt(rs1, Integer::Public(0))?;
                     if gt {
                         debug!("bgtz taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BGT { rs1, rs2, label } => {
@@ -714,8 +693,7 @@ impl<C: Channel> Party<C> {
                     let gt = self.executor.bgt(rs1, rs2)?;
                     if gt {
                         debug!("bgt taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::BLE { rs1, rs2, label } => {
@@ -724,19 +702,17 @@ impl<C: Channel> Party<C> {
                     let le = self.executor.ble(rs1, rs2)?;
                     if le {
                         debug!("ble taking branch");
-                        let address = program.offset(label, self.pc)?;
-                        self.update_pc(address, 0);
+                        self.pc = program.offset(label, self.pc)?;
                     }
                 }
                 Instruction::J { label } => {
                     debug!("jump to {label}");
-                    let address = program.offset(label, self.pc)?;
-                    self.update_pc(address, 0);
+                    self.pc = program.offset(label, self.pc)?;
                 }
                 Instruction::JR { rs1 } => {
                     if let Integer::Public(address) = self.x_registers.get(*rs1) {
                         debug!("jump to {address}");
-                        self.update_pc(address, 0);
+                        self.pc = address;
                     } else {
                         return Err(Error::SecretValueAsAddress);
                     }
@@ -745,7 +721,7 @@ impl<C: Channel> Party<C> {
                     if let Integer::Public(address) = self.x_registers.get(XRegister::x1) {
                         // ignore trailing ret if no calls were made
                         if self.call_depth > 0 {
-                            self.update_pc(address, 0);
+                            self.pc = address;
                             self.call_depth -= 1;
                         } else {
                             break;
@@ -776,6 +752,7 @@ impl<C: Channel> Party<C> {
                         }
                     } else {
                         let address = program.offset(&Label::Text(label.clone()), self.pc)?;
+                        // handle call to outlined function
                         if let Some(rd) = rd {
                             self.x_registers.set(*rd, Integer::Public(self.pc));
                         } else {
@@ -783,14 +760,13 @@ impl<C: Channel> Party<C> {
                                 .set(XRegister::x1, Integer::Public(self.pc));
                             self.call_depth += 1;
                         }
-                        self.update_pc(address, 0);
+                        self.pc = address;
                     }
                 }
                 Instruction::TAIL { label } => {
                     debug!("tail {label}");
                     // same as call but dont write return address to x1
-                    let address = program.offset(&Label::Text(label.clone()), self.pc)?;
-                    self.update_pc(address, 0);
+                    self.pc = program.offset(&Label::Text(label.clone()), self.pc)?;
                     self.call_depth += 1;
                 }
                 Instruction::Label(_) => {}
@@ -1204,7 +1180,7 @@ impl<C: Channel> Party<C> {
                 }
                 Instruction::DWORD(_) => {}
             };
-            self.update_pc(self.pc, 1);
+            self.pc += 1;
         }
         let duration = start.elapsed();
         info!("execution done, took {}ms", duration.as_millis());
@@ -1723,36 +1699,35 @@ mod tests {
         ";
 
         let (ch0, ch1) = create_channels();
-        let run = move |id: usize, ch: ThreadChannel| -> Result<Vec<u64>> {
-            let mut party = if id == PARTY_0 {
-                PartyBuilder::new(id, ch)
-                    .register_u64(XRegister::x10, Integer::Public(0x0))
-                    .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
-                    .register_u64(XRegister::x12, Integer::Public(0x1f))
-                    .address_range_u64(
-                        U64_BYTES * 5,
-                        vec![
-                            Integer::Secret(Share::Binary(0x0123456789abcdef)),
-                            Integer::Secret(Share::Binary(0x23456789abcdef01)),
-                            Integer::Secret(Share::Binary(0x456789abcdef0123)),
-                            Integer::Secret(Share::Binary(0x6789abcdef012345)),
-                            Integer::Secret(Share::Binary(0x89abcde01234567f)),
-                        ],
-                    )?
-                    .build()?
-            } else {
-                PartyBuilder::new(id, ch)
-                    .register_u64(XRegister::x10, Integer::Public(0x0))
-                    .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
-                    .register_u64(XRegister::x12, Integer::Public(0x1f))
-                    .build()?
-            };
+
+        let party0 = thread::spawn(move || {
+            let mut party = PartyBuilder::new(PARTY_0, ch0)
+                .register_u64(XRegister::x10, Integer::Public(0x0))
+                .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
+                .register_u64(XRegister::x12, Integer::Public(0x1f))
+                .address_range_u64(
+                    U64_BYTES * 5,
+                    vec![
+                        Integer::Secret(Share::Binary(0x0123456789abcdef)),
+                        Integer::Secret(Share::Binary(0x23456789abcdef01)),
+                        Integer::Secret(Share::Binary(0x456789abcdef0123)),
+                        Integer::Secret(Share::Binary(0x6789abcdef012345)),
+                        Integer::Secret(Share::Binary(0x89abcde01234567f)),
+                    ],
+                )?
+                .build()?;
             party.execute(&program.parse()?)?;
             party.address_range_u64(0x0..U64_BYTES * 5)
-        };
-
-        let party0 = thread::spawn(move || run(PARTY_0, ch0));
-        let party1 = thread::spawn(move || run(PARTY_1, ch1));
+        });
+        let party1 = thread::spawn(move || {
+            let mut party = PartyBuilder::new(PARTY_1, ch1)
+                .register_u64(XRegister::x10, Integer::Public(0x0))
+                .register_u64(XRegister::x11, Integer::Public(U64_BYTES * 5))
+                .register_u64(XRegister::x12, Integer::Public(0x1f))
+                .build()?;
+            party.execute(&program.parse()?)?;
+            party.address_range_u64(0x0..U64_BYTES * 5)
+        });
 
         let res0 = party0.join().unwrap().unwrap();
         let res1 = party1.join().unwrap().unwrap();

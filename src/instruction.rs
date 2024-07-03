@@ -43,6 +43,14 @@ pub enum VType {
     E64,
 }
 
+impl Display for VType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::E64 => write!(f, "e64"),
+        }
+    }
+}
+
 /// [`Instruction`] represents all supported RISC-V instructions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
@@ -891,7 +899,7 @@ impl FromStr for Instruction {
                 vs2: vs2.parse()?,
             }),
             _ => {
-                if s.starts_with(".quad") {
+                if s.starts_with(".quad") || s.starts_with(".dword") {
                     let dword = s.split_whitespace().last().unwrap();
                     if dword.starts_with("0x") {
                         Ok(Self::DWORD(u64::from_str_radix(
@@ -965,7 +973,45 @@ impl Display for Instruction {
             Instruction::CALL { rd: _, label } => write!(f, "call {label}"),
             Instruction::TAIL { label } => write!(f, "tail {label}"),
             Instruction::Label(label) => write!(f, "{label}:"),
-            _ => todo!(),
+            Instruction::FADD { rd, rs1, rs2 } => write!(f, "fadd {rd} {rs1} {rs2}"),
+            Instruction::FSUB { rd, rs1, rs2 } => write!(f, "fsub {rd} {rs1} {rs2}"),
+            Instruction::FMUL { rd, rs1, rs2 } => write!(f, "fmul {rd} {rs1} {rs2}"),
+            Instruction::FDIV { rd, rs1, rs2 } => write!(f, "fdiv {rd} {rs1} {rs2}"),
+            Instruction::FMIN { rd, rs1, rs2 } => write!(f, "fmin {rd} {rs1} {rs2}"),
+            Instruction::FMAX { rd, rs1, rs2 } => write!(f, "fmax {rd} {rs1} {rs2}"),
+            Instruction::FSQRT { rd, rs1 } => write!(f, "fsqrt {rd} {rs1}"),
+            Instruction::FLD { rd, offset, rs1 } => write!(f, "fld {rd} {offset} {rs1}"),
+            Instruction::FSD { rs2, offset, rs1 } => write!(f, "fsd {rs2} {offset} {rs1}"),
+            Instruction::FMADD { rd, rs1, rs2, rs3 } => write!(f, "fmadd {rd} {rs1} {rs2} {rs3}"),
+            Instruction::FMSUB { rd, rs1, rs2, rs3 } => write!(f, "fmsub {rd} {rs1} {rs2} {rs3}"),
+            Instruction::FNMADD { rd, rs1, rs2, rs3 } => write!(f, "fnmadd {rd} {rs1} {rs2} {rs3}"),
+            Instruction::FNMSUB { rd, rs1, rs2, rs3 } => write!(f, "fnmsub {rd} {rs1} {rs2} {rs3}"),
+            Instruction::FCVTLUD { rd, rs1 } => write!(f, "fcvtlud {rd} {rs1}"),
+            Instruction::FCVTDLU { rd, rs1 } => write!(f, "fcvtdlu {rd} {rs1}"),
+            Instruction::FMV { rd, rs1 } => write!(f, "fmv {rd} {rs1}"),
+            Instruction::FMVXD { rd, rs1 } => write!(f, "fmvxd {rd} {rs1}"),
+            Instruction::FMVDX { rd, rs1 } => write!(f, "fmvdx {rd} {rs1}"),
+            Instruction::FSGNJ { rd, rs1, rs2 } => write!(f, "fsgnj {rd} {rs1} {rs2}"),
+            Instruction::FSGNJN { rd, rs1, rs2 } => write!(f, "fsgnjn {rd} {rs1} {rs2}"),
+            Instruction::FSGNJX { rd, rs1, rs2 } => write!(f, "fsgnjx {rd} {rs1} {rs2}"),
+            Instruction::FEQ { rd, rs1, rs2 } => write!(f, "feq {rd} {rs1} {rs2}"),
+            Instruction::FLT { rd, rs1, rs2 } => write!(f, "flt {rd} {rs1} {rs2}"),
+            Instruction::FLE { rd, rs1, rs2 } => write!(f, "fle {rd} {rs1} {rs2}"),
+            Instruction::FCLASS { rd, rs1 } => write!(f, "fclass {rd} {rs1}"),
+            Instruction::FNEG { rd, rs1 } => write!(f, "fneg {rd} {rs1}"),
+            Instruction::FABS { rd, rs1 } => write!(f, "fabs {rd} {rs1}"),
+            Instruction::VSETVL { rd, rs1, rs2 } => write!(f, "vsetvl {rd} {rs1} {rs2}"),
+            Instruction::VSETVLI { rd, rs1, imm } => write!(f, "vsetvli {rd} {rs1} {imm}"),
+            Instruction::VLE { vd, rs1 } => write!(f, "vle {vd} {rs1}"),
+            Instruction::VSE { vs2, rs1 } => write!(f, "vse {vs2} {rs1}"),
+            Instruction::VMULVV { vd, vs1, vs2 } => write!(f, "vmulvv {vd} {vs1} {vs2}"),
+            Instruction::VMULVX { vd, rs1, vs2 } => write!(f, "vmulvx {vd} {rs1} {vs2}"),
+            Instruction::VFMULVV { vd, vs1, vs2 } => write!(f, "vfmulvv {vd} {vs1} {vs2}"),
+            Instruction::VFMULVF { vd, rs1, vs2 } => write!(f, "vfmulvf {vd} {rs1} {vs2}"),
+            Instruction::VANDVV { vd, vs1, vs2 } => write!(f, "vandvv {vd} {vs1} {vs2}"),
+            Instruction::VANDVX { vd, rs1, vs2 } => write!(f, "vandvx {vd} {rs1} {vs2}"),
+            Instruction::VANDVI { vd, imm, vs2 } => write!(f, "vandvi {vd} {imm} {vs2}"),
+            Instruction::DWORD(dword) => write!(f, ".dword {dword}"),
         }
     }
 }

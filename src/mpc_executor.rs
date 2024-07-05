@@ -1227,7 +1227,7 @@ mod tests {
     };
 
     #[derive(Debug, Clone, Copy)]
-    pub enum Output {
+    enum Output {
         Integer(u64),
         Float(f64),
     }

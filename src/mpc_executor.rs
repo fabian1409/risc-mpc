@@ -1838,6 +1838,14 @@ mod tests {
     }
 
     #[test]
+    fn flt_secret_secret() {
+        let x = Float::Secret(7.0.embed().unwrap());
+        let y = Float::Secret(2.0.embed().unwrap());
+        test!(MPCExecutor::flt, x, y, 0.into());
+        test!(MPCExecutor::flt, y, x, 1.into());
+    }
+
+    #[test]
     fn fmin_public_public() {
         let x = Float::Public(1.5);
         let y = Float::Public(0.5);

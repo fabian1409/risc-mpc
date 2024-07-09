@@ -1997,6 +1997,7 @@ mod tests {
                         .map(|x| Integer::Secret(Share::Binary(*x)))
                         .collect(),
                 )?
+                // .n_and_triples(15 * 12 * (3 + in0_len + in1_len))
                 .build()?;
             party.execute(&program.parse::<Program>()?.with_entry("ascon_hash")?)?;
             Ok(u64_arr_to_be_bytes(
@@ -2510,6 +2511,9 @@ mod tests {
                         .map(|x| Integer::Secret(Share::Binary(*x)))
                         .collect(),
                 )?
+                // .n_and_triples(
+                //     15 * 12 * 2 + 15 * 6 * pt_len + 15 * 6 * (ad_len + 1) * (ad_len > 0) as u64,
+                // )
                 .build()?;
             party.execute(&program.parse::<Program>()?.with_entry("encrypt_inplace")?)?;
             let ct = party.address_range_u64(pt_addr..pt_addr + pt_len * U64_BYTES)?;
@@ -2596,7 +2600,7 @@ mod tests {
 
     #[test]
     fn mnist_digit_predict() -> Result<()> {
-        // https://godbolt.org/z/477sr73hs
+        // https://godbolt.org/z/s8jqK8zvv
         let program = "
             .LCPI0_0:
                     .quad   0xc004000000000000
@@ -2791,7 +2795,8 @@ mod tests {
                 .address_range_f64(
                     w1_addr,
                     w1.iter()
-                        .flat_map(|row| row.iter().map(|x| Float::Secret(x.embed().unwrap())))
+                        .flatten()
+                        .map(|x| Float::Secret(x.embed().unwrap()))
                         .collect(),
                 )?
                 .address_range_f64(
@@ -2803,7 +2808,8 @@ mod tests {
                 .address_range_f64(
                     w2_addr,
                     w2.iter()
-                        .flat_map(|row| row.iter().map(|x| Float::Secret(x.embed().unwrap())))
+                        .flatten()
+                        .map(|x| Float::Secret(x.embed().unwrap()))
                         .collect(),
                 )?
                 .address_range_f64(
@@ -2832,6 +2838,9 @@ mod tests {
                         .map(|x| Float::Secret(x.embed().unwrap()))
                         .collect(),
                 )?
+                // .n_mul_triples(784 * 128 + 128 * 10)
+                // 13 * 2 for two flt, * 4 for two benz (13 * 2)
+                // .n_and_triples(13 * (2 + 4) * (128 + 10))
                 .build()?;
             party.execute(&program.parse::<Program>()?.with_entry("evaluate")?)?;
             party.address_range_f64(output_addr..output_addr + U64_BYTES * 10)

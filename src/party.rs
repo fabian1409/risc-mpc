@@ -82,6 +82,13 @@ impl<C: Channel> PartyBuilder<C> {
         self
     }
 
+    /// Set a [`XRegister`] to a given pre-shared secret [`Integer`].
+    pub fn register_shared_u64(mut self, register: XRegister, integer: Integer) -> PartyBuilder<C> {
+        assert!(integer.as_secret().is_some());
+        self.x_registers.set(register, integer);
+        self
+    }
+
     /// Set a [`FRegister`] to a given [`Float`].
     pub fn register_f64(mut self, register: FRegister, float: Float) -> PartyBuilder<C> {
         match float {
@@ -98,6 +105,13 @@ impl<C: Channel> PartyBuilder<C> {
         self
     }
 
+    /// Set a [`FRegister`] to a given pre-shared secret [`Float`].
+    pub fn register_shared_f64(mut self, register: FRegister, float: Float) -> PartyBuilder<C> {
+        assert!(float.as_secret().is_some());
+        self.f_registers.set(register, float);
+        self
+    }
+
     /// Set a [`Address`] to a given [`Integer`].
     pub fn address_u64(mut self, address: Address, integer: Integer) -> Result<PartyBuilder<C>> {
         match integer {
@@ -109,6 +123,17 @@ impl<C: Channel> PartyBuilder<C> {
             }
             Integer::Public(_) => self.memory.store(address, integer.into())?,
         }
+        Ok(self)
+    }
+
+    /// Set a [`Address`] to a given pre-shared secret [`Integer`].
+    pub fn address_shared_u64(
+        mut self,
+        address: Address,
+        integer: Integer,
+    ) -> Result<PartyBuilder<C>> {
+        assert!(integer.as_secret().is_some());
+        self.memory.store(address, integer.into())?;
         Ok(self)
     }
 
@@ -129,7 +154,14 @@ impl<C: Channel> PartyBuilder<C> {
         Ok(self)
     }
 
-    /// Set a [`Address`] range to a given [`Vec<Integer>`].
+    /// Set a [`Address`] to a given pre-shared secret [`Float`].
+    pub fn address_shared_f64(mut self, address: Address, float: Float) -> Result<PartyBuilder<C>> {
+        assert!(float.as_secret().is_some());
+        self.memory.store(address, float.into())?;
+        Ok(self)
+    }
+
+    /// Set a [`Address`] to a given pre-shared secret [`Integer`].
     /// The range is determined by the base `address` and ```inputs.len() * U64_BYTES```.
     pub fn address_range_u64(
         mut self,
@@ -139,6 +171,20 @@ impl<C: Channel> PartyBuilder<C> {
         for (i, integer) in integers.into_iter().enumerate() {
             let address = address + i as u64 * U64_BYTES;
             self = self.address_u64(address, integer)?;
+        }
+        Ok(self)
+    }
+
+    /// Set a [`Address`] range to a given pre-shared [`Vec<Integer>`].
+    /// The range is determined by the base `address` and ```inputs.len() * U64_BYTES```.
+    pub fn address_range_shared_u64(
+        mut self,
+        address: Address,
+        integers: Vec<Integer>,
+    ) -> Result<PartyBuilder<C>> {
+        for (i, integer) in integers.into_iter().enumerate() {
+            let address = address + i as u64 * U64_BYTES;
+            self = self.address_shared_u64(address, integer)?;
         }
         Ok(self)
     }
@@ -153,6 +199,20 @@ impl<C: Channel> PartyBuilder<C> {
         for (i, float) in floats.into_iter().enumerate() {
             let address = address + i as u64 * U64_BYTES;
             self = self.address_f64(address, float)?;
+        }
+        Ok(self)
+    }
+
+    /// Set a [`Address`] to a given pre-shared secret [`Vec<Float>`].
+    /// The range is determined by the base `address` and ```inputs.len() * U64_BYTES```.
+    pub fn address_range_shared_f64(
+        mut self,
+        address: Address,
+        floats: Vec<Float>,
+    ) -> Result<PartyBuilder<C>> {
+        for (i, float) in floats.into_iter().enumerate() {
+            let address = address + i as u64 * U64_BYTES;
+            self = self.address_shared_f64(address, float)?;
         }
         Ok(self)
     }

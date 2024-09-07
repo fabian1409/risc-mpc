@@ -2,6 +2,8 @@
 
 General-purpose multi-party computation from RISC-V assembly.
 
+**WARNING:** This is an academic proof-of-concept prototype, and in particular has not received careful code review. This implementation is NOT ready for production use.
+
 ## Example: mean of salaries
 
 This examples shows how to compute the mean salary without revealing salaries to the other party.

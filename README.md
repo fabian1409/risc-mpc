@@ -8,7 +8,7 @@ This examples shows how to compute the mean salary without revealing salaries to
 The code for both parties can be found in the [examples](examples) directory.
 
 ```rust
-use risc_mpc::{Integer, PartyBuilder, Register, Result, Share, TcpChannel, PARTY_0, U64_BYTES};
+use risc_mpc::{Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, PARTY_0, U64_BYTES};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -53,22 +53,22 @@ fn main() -> Result<()> {
 
     let ch = TcpChannel::new(PARTY_0, "127.0.0.1:8000".parse().unwrap())?;
     let mut party = PartyBuilder::new(PARTY_0, ch)
-        .register(Register::x10, Integer::Public(0x0).into()) // salaries0 address
-        .register(Register::x11, Integer::Public(n).into()) // salaries0 length
-        .register(Register::x12, Integer::Public(U64_BYTES * n).into()) // salaries1 address
-        .register(Register::x13, Integer::Public(k).into()) // salaries1 length
-        .address_range(
+        .register_u64(XRegister::x10, Integer::Public(0x0)) // salaries0 address
+        .register_u64(XRegister::x11, Integer::Public(n)) // salaries0 length
+        .register_u64(XRegister::x12, Integer::Public(U64_BYTES * n)) // salaries1 address
+        .register_u64(XRegister::x13, Integer::Public(k)) // salaries1 length
+        .address_range_u64(
             0x0,
             salaries
                 .iter()
-                .map(|x| Integer::Secret(Share::Arithmetic(*x)).into())
+                .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                 .collect(),
         )?
         .build()?;
 
     party.execute(&program)?;
 
-    let mean: u64 = party.register(Register::x10)?.try_into()?;
+    let mean = party.register_u64(XRegister::x10)?;
 
     println!("mean = {mean}");
     Ok(())

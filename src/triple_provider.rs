@@ -203,24 +203,13 @@ impl TripleProvider {
         ch: &mut C,
         n_and_triples: u64,
     ) -> Result<Vec<(u64, u64, u64)>> {
-        if self.id == PARTY_0 {
-            let aus = self.ot_rand_ab_uv(ch, PARTY_1, n_and_triples)?;
-            let bvs = self.ot_rand_ab_uv(ch, PARTY_0, n_and_triples)?;
-            let triples = aus
-                .into_iter()
-                .zip(bvs)
-                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
-                .collect();
-            Ok(triples)
-        } else {
-            let bvs = self.ot_rand_ab_uv(ch, PARTY_1, n_and_triples)?;
-            let aus = self.ot_rand_ab_uv(ch, PARTY_0, n_and_triples)?;
-            let triples = aus
-                .into_iter()
-                .zip(bvs)
-                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
-                .collect();
-            Ok(triples)
-        }
+        let aus = self.ot_rand_ab_uv(ch, PARTY_1, n_and_triples)?;
+        let bvs = self.ot_rand_ab_uv(ch, PARTY_0, n_and_triples)?;
+        let triples = aus
+            .into_iter()
+            .zip(bvs)
+            .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
+            .collect();
+        Ok(triples)
     }
 }

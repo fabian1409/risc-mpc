@@ -241,7 +241,7 @@ impl<C: Channel> PartyBuilder<C> {
         Ok(())
     }
 
-    // Receive shares from other party
+    /// Receive shares from other party
     fn recv_secret_inputs(&mut self) -> Result<()> {
         debug!("party {} receiving inputs", self.id);
         if let Message::SecretInputs(secret_inputs) = self.ch.recv()? {
@@ -265,13 +265,8 @@ impl<C: Channel> PartyBuilder<C> {
     /// The setup phase is done in this function, so it can take a long time.
     /// Returned [`Party`] can be used to execute a [`Program`].
     pub fn build(mut self) -> Result<Party<C>> {
-        if self.id == PARTY_0 {
-            self.send_secret_inputs()?;
-            self.recv_secret_inputs()?;
-        } else {
-            self.recv_secret_inputs()?;
-            self.send_secret_inputs()?;
-        }
+        self.send_secret_inputs()?;
+        self.recv_secret_inputs()?;
 
         let mut triple_provider = TripleProvider::new(self.id, &mut self.ch)?;
         if self.n_mul_triples > 0 || self.n_and_triples > 0 {

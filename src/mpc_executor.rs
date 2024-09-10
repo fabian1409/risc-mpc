@@ -107,15 +107,8 @@ pub struct MPCExecutor<C: Channel> {
 impl<C: Channel> MPCExecutor<C> {
     /// Create new [`MPCExecutor`].
     pub fn new(id: usize, mut ch: C, triple_provider: TripleProvider) -> Result<MPCExecutor<C>> {
-        let (sender, receiver) = if id == PARTY_0 {
-            let sender = OTSender::new(&mut ch)?;
-            let receiver = OTReceiver::new(&mut ch)?;
-            (sender, receiver)
-        } else {
-            let receiver = OTReceiver::new(&mut ch)?;
-            let sender = OTSender::new(&mut ch)?;
-            (sender, receiver)
-        };
+        let sender = OTSender::new(&mut ch)?;
+        let receiver = OTReceiver::new(&mut ch)?;
         Ok(MPCExecutor {
             id,
             ch,
@@ -127,28 +120,26 @@ impl<C: Channel> MPCExecutor<C> {
 
     /// Reveal the given [`Share`].
     pub fn reveal(&mut self, share: Share) -> Result<u64> {
-        if self.id == PARTY_0 {
-            self.ch.send(Message::Share(share))?;
-            let other = self.ch.recv()?.as_share().unwrap();
-            shares_to_x((share, other))
-        } else {
-            let other = self.ch.recv()?.as_share().unwrap();
-            self.ch.send(Message::Share(share))?;
-            shares_to_x((share, other))
-        }
+        self.ch.send(Message::Share(share))?;
+        let other = self.ch.recv()?.as_share().unwrap();
+        shares_to_x((share, other))
+    }
+
+    /// Reveal the two given [`Share`]s.
+    pub fn reveal2(&mut self, shares: (Share, Share)) -> Result<(u64, u64)> {
+        self.ch.send(Message::Share2(shares))?;
+        let others = self.ch.recv()?.as_share2().unwrap();
+        Ok((
+            shares_to_x((shares.0, others.0))?,
+            shares_to_x((shares.1, others.1))?,
+        ))
     }
 
     /// Reveal Vec of [`Share`]s.
     pub fn reveal_vec(&mut self, shares: Vec<Share>) -> Result<Vec<u64>> {
-        if self.id == PARTY_0 {
-            self.ch.send(Message::ShareVec(shares.clone()))?;
-            let others = self.ch.recv()?.as_share_vec().unwrap();
-            shares.into_iter().zip(others).map(shares_to_x).collect()
-        } else {
-            let others = self.ch.recv()?.as_share_vec().unwrap();
-            self.ch.send(Message::ShareVec(shares.clone()))?;
-            shares.into_iter().zip(others).map(shares_to_x).collect()
-        }
+        self.ch.send(Message::ShareVec(shares.clone()))?;
+        let others = self.ch.recv()?.as_share_vec().unwrap();
+        shares.into_iter().zip(others).map(shares_to_x).collect()
     }
 
     /// Reveal the given [`Share`] for party with `id`.
@@ -403,8 +394,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let d_share = Share::Arithmetic(x.wrapping_sub(a));
                 let e_share = Share::Arithmetic(y.wrapping_sub(b));
 
-                let d = self.reveal(d_share)?;
-                let e = self.reveal(e_share)?;
+                let (d, e) = self.reveal2((d_share, e_share))?;
 
                 if self.id == PARTY_0 {
                     Ok(Integer::Secret(Share::Arithmetic(
@@ -458,8 +448,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let d_share = Share::Arithmetic(x.wrapping_sub(a));
                 let e_share = Share::Arithmetic(y.wrapping_sub(b));
 
-                let d = self.reveal(d_share)?;
-                let e = self.reveal(e_share)?;
+                let (d, e) = self.reveal2((d_share, e_share))?;
 
                 let res = if self.id == PARTY_0 {
                     Integer::Secret(Share::Arithmetic(
@@ -767,8 +756,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let d_share = Share::Binary(x ^ a);
                 let e_share = Share::Binary(y ^ b);
 
-                let d = self.reveal(d_share)?;
-                let e = self.reveal(e_share)?;
+                let (d, e) = self.reveal2((d_share, e_share))?;
 
                 if self.id == PARTY_0 {
                     Ok(Integer::Secret(Share::Binary(
@@ -911,8 +899,9 @@ impl<C: Channel> MPCExecutor<C> {
             (Integer::Secret(Share::Binary(x)), Integer::Public(y)) => {
                 Ok(Integer::Secret(Share::Binary(x >> y)))
             }
-            (Integer::Secret(Share::Arithmetic(x)), Integer::Public(y)) => {
-                Ok(Integer::Secret(Share::Arithmetic(x >> y)))
+            (Integer::Secret(Share::Arithmetic(_)), Integer::Public(y)) => {
+                let x = self.a2b(x)?;
+                Ok(Integer::Secret(Share::Binary(x.as_u64() >> y)))
             }
             _ => Err(Error::ShiftBySecretValue),
         }
@@ -1553,6 +1542,40 @@ mod tests {
         let x = Integer::Secret(Share::Binary(0b0100));
         let y = Integer::Secret(Share::Binary(0b0110));
         test!(MPCExecutor::or, x, y, 0b0110.into());
+    }
+
+    #[test]
+    fn lshift_public_public() {
+        let x = Integer::Public(1);
+        let y = Integer::Public(7);
+        test!(MPCExecutor::lshift, x, y, 128.into());
+    }
+
+    #[test]
+    fn lshift_secret_public() {
+        let x = Integer::Secret(Share::Binary(1));
+        let y = Integer::Public(7);
+        test!(MPCExecutor::lshift, x, y, 128.into());
+        let x = Integer::Secret(Share::Arithmetic(1));
+        let y = Integer::Public(7);
+        test!(MPCExecutor::lshift, x, y, 128.into());
+    }
+
+    #[test]
+    fn rshift_public_public() {
+        let x = Integer::Public(256);
+        let y = Integer::Public(1);
+        test!(MPCExecutor::rshift, x, y, 128.into());
+    }
+
+    #[test]
+    fn rshift_secret_public() {
+        let x = Integer::Secret(Share::Binary(256));
+        let y = Integer::Public(1);
+        test!(MPCExecutor::rshift, x, y, 128.into());
+        let x = Integer::Secret(Share::Arithmetic(256));
+        let y = Integer::Public(1);
+        test!(MPCExecutor::rshift, x, y, 128.into());
     }
 
     #[test]

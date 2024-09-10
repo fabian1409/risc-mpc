@@ -21,7 +21,7 @@ mod registers;
 mod triple_provider;
 mod types;
 
-pub use channel::{TcpChannel, ThreadChannel};
+pub use channel::{Channel, TcpChannel, ThreadChannel};
 pub use error::Result;
 pub use instruction::{Instruction, Label};
 pub use memory::{Address, U64_BYTES};

@@ -28,20 +28,14 @@ pub enum Error {
     AddressNotAligned(u64),
     #[error("unknown label {0}")]
     UnknownLabel(String),
-    #[error(transparent)]
-    ChannelBuilderError(#[from] tsyncp::channel::builder::errors::BuilderError),
-    #[error(transparent)]
-    ChannelError(#[from] Box<dyn std::error::Error + Send + Sync>),
-    #[error("received unexpected message")]
-    UnexpectedMessage,
     #[error("unexpected value")]
     UnexpectedValue,
     #[error("unexpected register")]
     UnexpectedRegister,
     #[error("error in fixed-point embedding")]
     FixedPointEmbeddingError,
-    #[error("empty vector")]
-    EmptyVec,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 /// [`Result`] type for riscMPC.

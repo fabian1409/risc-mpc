@@ -51,7 +51,7 @@ fn main() -> Result<()> {
     let n = set.len() as u64;
     let k = n;
 
-    let ch = TcpChannel::new(PARTY_0, "127.0.0.1:8000".parse().unwrap())?;
+    let ch = TcpChannel::bind("127.0.0.1:8000")?;
     let mut party = PartyBuilder::new(PARTY_0, ch)
         .register_u64(XRegister::x10, Integer::Public(0x0)) // set0 address
         .register_u64(XRegister::x11, Integer::Public(n)) // set0 length

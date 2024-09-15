@@ -9,19 +9,22 @@ description = "general-purpose multi-party computation from RISC-V assembly"
 [dependencies]
 rand = "0.8.5"
 serde = { version = "1.0.188", features = ["derive"] }
-tsyncp = "0.3.0"
 log = "0.4.20"
 env_logger = "0.10.0"
 bit = "0.1.1"
 thiserror = "1.0.56"
 intmap = "2.0.0"
 curve25519-dalek = { version = "4.1.2", features = ["serde", "rand_core"] }
-tokio = { version = "1.37.0", features = ["rt"] }
+tokio = { version = "1.37.0", features = ["rt", "net"] }
 tiny-keccak = { version = "2.0.2", features = ["k12"] }
 aes = "0.8.4"
 rand_core = "0.6.4"
 approx = "0.5.1"
 itertools = "0.12.1"
+bincode = "1.3.3"
+tokio-util = { version = "0.7.12", features = ["codec"] }
+futures = "0.3.30"
+bytes = "1.7.1"
 
 [profile.test]
 opt-level = 3

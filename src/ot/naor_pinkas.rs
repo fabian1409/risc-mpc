@@ -5,7 +5,7 @@
 
 use super::utils::block::{hash_pt, Block};
 use crate::{
-    channel::{Channel, Message},
+    channel::Channel,
     error::{Error, Result},
 };
 use curve25519_dalek::{
@@ -34,11 +34,11 @@ impl OTSender {
         let mut pks = Vec::with_capacity(m);
         for _ in 0..m {
             let c = RistrettoPoint::random(&mut self.rng);
-            ch.send(Message::Point(c))?;
+            ch.send_point(&c)?;
             cs.push(c);
         }
         for c in cs.into_iter() {
-            let pk0 = ch.recv()?.as_point().ok_or(Error::UnexpectedMessage)?;
+            let pk0 = ch.recv_point()?;
             pks.push((pk0, c - pk0));
         }
         for (i, (input, pk)) in inputs.iter().zip(pks.into_iter()).enumerate() {
@@ -48,9 +48,9 @@ impl OTSender {
             let e01 = h ^ input.0;
             let h = hash_pt(i as u128, &(pk.1 * r));
             let e11 = h ^ input.1;
-            ch.send(Message::Point(ei0))?;
-            ch.send(Message::Block(e01))?;
-            ch.send(Message::Block(e11))?;
+            ch.send_point(&ei0)?;
+            ch.send_block(e01)?;
+            ch.send_block(e11)?;
         }
         Ok(())
     }
@@ -76,7 +76,7 @@ impl OTReceiver {
         let mut cs = Vec::with_capacity(m);
         let mut ks = Vec::with_capacity(m);
         for _ in 0..m {
-            let c = ch.recv()?.as_point().ok_or(Error::UnexpectedMessage)?;
+            let c = ch.recv_point()?;
             cs.push(c);
         }
         for (b, c) in inputs.iter().zip(cs.into_iter()) {
@@ -84,8 +84,8 @@ impl OTReceiver {
             let pk = &k * RISTRETTO_BASEPOINT_TABLE;
             let pk_ = c - pk;
             match b {
-                false => ch.send(Message::Point(pk))?,
-                true => ch.send(Message::Point(pk_))?,
+                false => ch.send_point(&pk)?,
+                true => ch.send_point(&pk_)?,
             };
             ks.push(k);
         }
@@ -94,9 +94,9 @@ impl OTReceiver {
             .zip(ks)
             .enumerate()
             .map(|(i, (b, k))| {
-                let ei0 = ch.recv()?.as_point().ok_or(Error::UnexpectedMessage)?;
-                let e01 = ch.recv()?.as_block().ok_or(Error::UnexpectedMessage)?;
-                let e11 = ch.recv()?.as_block().ok_or(Error::UnexpectedMessage)?;
+                let ei0 = ch.recv_point()?;
+                let e01 = ch.recv_block()?;
+                let e11 = ch.recv_block()?;
                 let e1 = match b {
                     false => e01,
                     true => e11,
@@ -111,7 +111,8 @@ impl OTReceiver {
 #[cfg(test)]
 mod tests {
     use super::{OTReceiver, OTSender};
-    use crate::{channel::Message, ot::utils::block::Block, ThreadChannel};
+    use crate::{ot::utils::block::Block, ThreadChannel};
+    use bytes::Bytes;
     use rand::random;
     use std::{
         sync::mpsc::{self, Receiver, Sender},
@@ -119,8 +120,8 @@ mod tests {
     };
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
-        let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
-        let (tx1, rx1): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let (tx0, rx0): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
+        let (tx1, rx1): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
         let ch0 = ThreadChannel::new(tx0, rx1);
         let ch1 = ThreadChannel::new(tx1, rx0);
         (ch0, ch1)

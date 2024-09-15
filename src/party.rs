@@ -1,5 +1,5 @@
 use crate::{
-    channel::{Channel, Message},
+    channel::Channel,
     error::{Error, Result},
     instruction::Instruction,
     memory::{Address, Memory},
@@ -12,7 +12,7 @@ use crate::{
 };
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::{mem::take, ops::Range, time::Instant};
+use std::{ops::Range, time::Instant};
 
 /// Id for party 0
 pub const PARTY_0: usize = 0;
@@ -236,25 +236,21 @@ impl<C: Channel> PartyBuilder<C> {
             self.id,
             self.secret_inputs.len()
         );
-        self.ch
-            .send(Message::SecretInputs(take(&mut self.secret_inputs)))?;
+        self.ch.send_secret_inputs(&self.secret_inputs)?;
         Ok(())
     }
 
     /// Receive shares from other party
     fn recv_secret_inputs(&mut self) -> Result<()> {
         debug!("party {} receiving inputs", self.id);
-        if let Message::SecretInputs(secret_inputs) = self.ch.recv()? {
-            for (location, value) in secret_inputs {
-                match location {
-                    Location::Register(register) => match value {
-                        Value::Integer(integer) => {
-                            self.x_registers.set(register.try_into()?, integer)
-                        }
-                        Value::Float(float) => self.f_registers.set(register.try_into()?, float),
-                    },
-                    Location::Address(address) => self.memory.store(address, value)?,
-                }
+        let secret_inputs = self.ch.recv_secret_inputs()?;
+        for (location, value) in secret_inputs {
+            match location {
+                Location::Register(register) => match value {
+                    Value::Integer(integer) => self.x_registers.set(register.try_into()?, integer),
+                    Value::Float(float) => self.f_registers.set(register.try_into()?, float),
+                },
+                Location::Address(address) => self.memory.store(address, value)?,
             }
         }
         Ok(())
@@ -1245,14 +1241,12 @@ impl<C: Channel> Party<C> {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use super::{PartyBuilder, PARTY_0};
     use crate::{
-        channel::{Message, ThreadChannel},
-        mpc_executor::EmbedFixedPoint,
-        party::PARTY_1,
-        registers::XRegister,
-        types::Integer,
-        Float, Program, Result, Share, U64_BYTES,
+        channel::ThreadChannel, mpc_executor::EmbedFixedPoint, party::PARTY_1,
+        registers::XRegister, types::Integer, Float, Program, Result, Share, U64_BYTES,
     };
     use std::{
         collections::BTreeSet,
@@ -1264,8 +1258,8 @@ mod tests {
     };
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
-        let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
-        let (tx1, rx1): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let (tx0, rx0): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
+        let (tx1, rx1): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
         let ch0 = ThreadChannel::new(tx0, rx1);
         let ch1 = ThreadChannel::new(tx1, rx0);
         (ch0, ch1)
@@ -1404,8 +1398,8 @@ mod tests {
 
         let (ch0, ch1) = create_channels();
 
-        let set0 = BTreeSet::from([1, 2, 3]);
-        let set1 = BTreeSet::from([2, 3, 4]);
+        let set0 = BTreeSet::from([1, 2, 3, 4]);
+        let set1 = BTreeSet::from([3, 4, 5, 6]);
         let set0_len = set0.len() as u64;
         let set1_len = set1.len() as u64;
         let intersection: Vec<u64> = set0.intersection(&set1).copied().collect();

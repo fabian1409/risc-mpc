@@ -10,10 +10,8 @@ use super::{
         boolvec_to_u8vec, transpose, u8vec_to_boolvec, xor_inplace,
     },
 };
-use crate::{
-    channel::{Channel, Message},
-    error::{Error, Result},
-};
+use crate::{channel::Channel, error::Result};
+use bytes::Bytes;
 use rand::Rng;
 use rand_core::{RngCore, SeedableRng};
 
@@ -57,7 +55,7 @@ impl OTExtSender {
         for (j, (b, rng)) in self.s.iter().zip(self.rngs.iter_mut()).enumerate() {
             let range = j * ncols / 8..(j + 1) * ncols / 8;
             let q = &mut qs[range];
-            u.copy_from_slice(channel.recv()?.as_bytes().ok_or(Error::UnexpectedMessage)?);
+            u.copy_from_slice(&channel.recv()?);
             rng.fill_bytes(q);
             xor_inplace(q, if *b { &u } else { &zero });
         }
@@ -74,8 +72,8 @@ impl OTExtSender {
             let y0 = self.hash.cr_hash(q) ^ input.0;
             let q = q ^ self.s_;
             let y1 = self.hash.cr_hash(q) ^ input.1;
-            channel.send(Message::Block(y0))?;
-            channel.send(Message::Block(y1))?;
+            channel.send_block(y0)?;
+            channel.send_block(y1)?;
         }
         Ok(())
     }
@@ -97,7 +95,7 @@ impl OTExtSender {
             let x1 = x0 ^ *delta;
             let q = q ^ self.s_;
             let y = self.hash.cr_hash(q) ^ x1;
-            channel.send(Message::Block(y))?;
+            channel.send_block(y)?;
             out.push((x0, x1));
         }
         Ok(out)
@@ -174,7 +172,7 @@ impl OTExtReceiver {
             self.rngs[j].1.fill_bytes(&mut g);
             xor_inplace(&mut g, t);
             xor_inplace(&mut g, r);
-            channel.send(Message::Bytes(g.clone()))?;
+            channel.send(Bytes::from(g.clone()))?;
         }
         Ok(transpose(&ts, NROWS, ncols))
     }
@@ -186,8 +184,8 @@ impl OTExtReceiver {
         for (j, b) in inputs.iter().enumerate() {
             let t = &ts[j * 16..(j + 1) * 16];
             let t: [u8; 16] = t.try_into().unwrap();
-            let y0 = channel.recv()?.as_block().ok_or(Error::UnexpectedMessage)?;
-            let y1 = channel.recv()?.as_block().ok_or(Error::UnexpectedMessage)?;
+            let y0 = channel.recv_block()?;
+            let y1 = channel.recv_block()?;
             let y = if *b { y1 } else { y0 };
             let y = y ^ self.hash.cr_hash(Block::from_le_bytes(t));
             out.push(y);
@@ -207,7 +205,7 @@ impl OTExtReceiver {
         for (j, b) in inputs.iter().enumerate() {
             let t = &ts[j * 16..(j + 1) * 16];
             let t: [u8; 16] = t.try_into().unwrap();
-            let y = channel.recv()?.as_block().ok_or(Error::UnexpectedMessage)?;
+            let y = channel.recv_block()?;
             let y = if *b { y } else { Block::default() };
             let h = self.hash.cr_hash(Block::from_le_bytes(t));
             out.push(y ^ h);
@@ -237,7 +235,8 @@ impl OTExtReceiver {
 #[cfg(test)]
 mod tests {
     use super::{OTExtReceiver, OTExtSender};
-    use crate::{channel::Message, ot::utils::block::Block, ThreadChannel};
+    use crate::{ot::utils::block::Block, ThreadChannel};
+    use bytes::Bytes;
     use rand::random;
     use std::{
         sync::mpsc::{self, Receiver, Sender},
@@ -246,8 +245,8 @@ mod tests {
     };
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
-        let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
-        let (tx1, rx1): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let (tx0, rx0): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
+        let (tx1, rx1): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
         let ch0 = ThreadChannel::new(tx0, rx1);
         let ch1 = ThreadChannel::new(tx1, rx0);
         (ch0, ch1)

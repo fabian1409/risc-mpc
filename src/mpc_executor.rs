@@ -1,5 +1,5 @@
 use crate::{
-    channel::{Channel, Message},
+    channel::Channel,
     error::{Error, Result},
     ot::{
         chou_orlandi::{OTReceiver, OTSender},
@@ -120,15 +120,15 @@ impl<C: Channel> MPCExecutor<C> {
 
     /// Reveal the given [`Share`].
     pub fn reveal(&mut self, share: Share) -> Result<u64> {
-        self.ch.send(Message::Share(share))?;
-        let other = self.ch.recv()?.as_share().unwrap();
+        self.ch.send_share(share)?;
+        let other = self.ch.recv_share()?;
         shares_to_x((share, other))
     }
 
     /// Reveal the two given [`Share`]s.
     pub fn reveal2(&mut self, shares: (Share, Share)) -> Result<(u64, u64)> {
-        self.ch.send(Message::Share2(shares))?;
-        let others = self.ch.recv()?.as_share2().unwrap();
+        self.ch.send_share2(shares)?;
+        let others = self.ch.recv_share2()?;
         Ok((
             shares_to_x((shares.0, others.0))?,
             shares_to_x((shares.1, others.1))?,
@@ -137,18 +137,18 @@ impl<C: Channel> MPCExecutor<C> {
 
     /// Reveal Vec of [`Share`]s.
     pub fn reveal_vec(&mut self, shares: Vec<Share>) -> Result<Vec<u64>> {
-        self.ch.send(Message::ShareVec(shares.clone()))?;
-        let others = self.ch.recv()?.as_share_vec().unwrap();
+        self.ch.send_share_vec(&shares)?;
+        let others = self.ch.recv_share_vec()?;
         shares.into_iter().zip(others).map(shares_to_x).collect()
     }
 
     /// Reveal the given [`Share`] for party with `id`.
     pub fn reveal_for(&mut self, share: Share, id: usize) -> Result<Option<u64>> {
         if self.id == id {
-            let other = self.ch.recv()?.as_share().unwrap();
+            let other = self.ch.recv_share()?;
             Ok(Some(shares_to_x((share, other))?))
         } else {
-            self.ch.send(Message::Share(share))?;
+            self.ch.send_share(share)?;
             Ok(None)
         }
     }
@@ -156,54 +156,89 @@ impl<C: Channel> MPCExecutor<C> {
     /// Add 2 binary shares using a optimized binary addition circuit.
     fn bin_add(&mut self, x: Integer, y: Integer) -> Result<Integer> {
         debug!("bin_add x = {x:?} y = {y:?}");
+        let p = self.xor(x, y)?;
+        let g = self.and(x, y)?;
+        self.kogge_stone_inner(p, g)
+    }
 
-        let mut s = self.and(x, y)?;
-        let mut p = self.xor(x, y)?;
-        let orig_p = p;
+    // /// Add 2 binary shares using a optimized binary addition circuit.
+    // fn bin_add(&mut self, x: Integer, y: Integer) -> Result<Integer> {
+    //     debug!("bin_add x = {x:?} y = {y:?}");
 
-        let masks = [
-            6148914691236517205,
-            2459565876494606882,
-            578721382704613384,
-            36029346783166592,
-            140737488388096,
-            2147483648u64,
-        ];
+    //     let mut s = self.and(x, y)?;
+    //     let mut p = self.xor(x, y)?;
+    //     let orig_p = p;
 
-        let mut multipliers = Vec::new();
+    //     let masks = [
+    //         6148914691236517205,
+    //         2459565876494606882,
+    //         578721382704613384,
+    //         36029346783166592,
+    //         140737488388096,
+    //         2147483648u64,
+    //     ];
 
-        for i in 0..6 {
-            multipliers.push((1 << (2u64.pow(i) + 1)) - 2);
+    //     let mut multipliers = Vec::new();
+
+    //     for i in 0..6 {
+    //         multipliers.push((1 << (2u64.pow(i) + 1)) - 2);
+    //     }
+
+    //     let out_masks: Vec<u64> = masks
+    //         .iter()
+    //         .zip(multipliers.iter())
+    //         .map(|(mask, mult)| mask * mult)
+    //         .collect();
+
+    //     for ((in_mask, out_mask), mult) in
+    //         masks.iter().zip(out_masks.iter()).zip(multipliers.iter())
+    //     {
+    //         let not_out_mask = !out_mask;
+    //         let p0 = self.and(p, Integer::Public(*out_mask))?;
+    //         let s1 = self.and(s, Integer::Public(*in_mask))?.as_u64();
+    //         let p1 = self.and(p, Integer::Public(*in_mask))?.as_u64();
+
+    //         let s1 = Integer::Secret(Share::Binary(s1.wrapping_mul(*mult)));
+    //         let p1 = Integer::Secret(Share::Binary(p1.wrapping_mul(*mult)));
+
+    //         p = self.and(p, Integer::Public(not_out_mask))?;
+
+    //         let tmp = self.and(p0, s1)?;
+    //         s = self.xor(s, tmp)?;
+
+    //         let tmp = self.and(p0, p1)?;
+    //         p = self.xor(p, tmp)?;
+    //     }
+
+    //     let tmp = self.lshift(s, Integer::Public(1))?;
+    //     self.xor(orig_p, tmp)
+    // }
+
+    /// Kogge stone adder.
+    fn kogge_stone_inner(&mut self, p: Integer, g: Integer) -> Result<Integer> {
+        let bitlen = 64;
+        let d = 6; // log2 64
+        let s_ = p.as_u64();
+        let mut p = p.as_u64();
+        let mut g = g.as_u64();
+        for i in 0..d {
+            let shift = 1 << i;
+            let mut p_ = p;
+            let mut g_ = g;
+            let mask = (1u64 << (bitlen - shift)) - 1;
+            p_ &= mask;
+            g_ &= mask;
+            let p_shift = Integer::Secret(Share::Binary(p >> shift));
+
+            let r1 = self.and(p_shift, Integer::Secret(Share::Binary(g_)))?;
+            let r2 = self.and(p_shift, Integer::Secret(Share::Binary(p_)))?;
+
+            p = r2.as_u64() << shift;
+            g ^= r1.as_u64() << shift;
         }
-
-        let out_masks: Vec<u64> = masks
-            .iter()
-            .zip(multipliers.iter())
-            .map(|(mask, mult)| mask * mult)
-            .collect();
-
-        for ((in_mask, out_mask), mult) in
-            masks.iter().zip(out_masks.iter()).zip(multipliers.iter())
-        {
-            let not_out_mask = !out_mask;
-            let p0 = self.and(p, Integer::Public(*out_mask))?;
-            let s1 = self.and(s, Integer::Public(*in_mask))?.as_u64();
-            let p1 = self.and(p, Integer::Public(*in_mask))?.as_u64();
-
-            let s1 = Integer::Secret(Share::Binary(s1.wrapping_mul(*mult)));
-            let p1 = Integer::Secret(Share::Binary(p1.wrapping_mul(*mult)));
-
-            p = self.and(p, Integer::Public(not_out_mask))?;
-
-            let tmp = self.and(p0, s1)?;
-            s = self.xor(s, tmp)?;
-
-            let tmp = self.and(p0, p1)?;
-            p = self.xor(p, tmp)?;
-        }
-
-        let tmp = self.lshift(s, Integer::Public(1))?;
-        self.xor(orig_p, tmp)
+        g <<= 1;
+        g ^= s_;
+        Ok(Integer::Secret(Share::Binary(g)))
     }
 
     /// Convert a [`Secret`] from a [`Arithmetic`] share to a [`Binary`] share.
@@ -649,7 +684,9 @@ impl<C: Channel> MPCExecutor<C> {
                     .map(|e| self.fmul_truncate(e))
                     .collect::<Result<Vec<Float>>>()
             }
-            _ => Err(Error::EmptyVec),
+            _ => {
+                panic!("vectors not of same length");
+            }
         }
     }
 
@@ -1210,6 +1247,7 @@ mod tests {
     use crate::channel::ThreadChannel;
     use crate::types::Value;
     use approx::assert_relative_eq;
+    use bytes::Bytes;
     use std::{
         sync::mpsc::{self, Receiver, Sender},
         thread,
@@ -1234,8 +1272,8 @@ mod tests {
     }
 
     fn create_channels() -> (ThreadChannel, ThreadChannel) {
-        let (tx0, rx0): (Sender<Message>, Receiver<Message>) = mpsc::channel();
-        let (tx1, rx1): (Sender<Message>, Receiver<Message>) = mpsc::channel();
+        let (tx0, rx0): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
+        let (tx1, rx1): (Sender<Bytes>, Receiver<Bytes>) = mpsc::channel();
         let ch0 = ThreadChannel::new(tx0, rx1);
         let ch1 = ThreadChannel::new(tx1, rx0);
         (ch0, ch1)

@@ -1,151 +1,153 @@
-use crate::{
-    error::Result,
-    ot::utils::block::Block,
-    party::{Location, PARTY_0},
-    types::Value,
-    Share,
-};
+use crate::{error::Result, ot::utils::block::Block, party::Location, types::Value, Share};
+use bytes::Bytes;
 use curve25519_dalek::RistrettoPoint;
-use serde::{Deserialize, Serialize};
-use std::{
-    net::SocketAddr,
-    sync::mpsc::{Receiver, Sender},
-    time::Duration,
+use futures::{SinkExt, StreamExt};
+use std::sync::mpsc::{Receiver, Sender};
+use std::{thread, time::Duration};
+use tokio::{
+    net::{TcpListener, TcpStream, ToSocketAddrs},
+    runtime::Runtime,
 };
-use tokio::runtime::Runtime;
-use tsyncp::channel::{channel_on, channel_to, BincodeChannel};
-
-/// [`Message`] used by [`Channel`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Message {
-    Share(Share),
-    Share2((Share, Share)),
-    ShareVec(Vec<Share>),
-    SecretInputs(Vec<(Location, Value)>),
-    Point(RistrettoPoint),
-    Block(Block),
-    Bytes(Vec<u8>),
-}
-
-impl Message {
-    pub fn as_share(&self) -> Option<Share> {
-        match self {
-            Message::Share(share) => Some(*share),
-            _ => None,
-        }
-    }
-
-    pub fn as_share2(&self) -> Option<(Share, Share)> {
-        match self {
-            Message::Share2(shares) => Some(*shares),
-            _ => None,
-        }
-    }
-
-    pub fn as_share_vec(&self) -> Option<Vec<Share>> {
-        match self {
-            Message::ShareVec(shares) => Some(shares.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn as_point(&self) -> Option<RistrettoPoint> {
-        match self {
-            Message::Point(point) => Some(*point),
-            _ => None,
-        }
-    }
-
-    pub fn as_block(&self) -> Option<Block> {
-        match self {
-            Message::Block(block) => Some(*block),
-            _ => None,
-        }
-    }
-
-    pub fn as_bytes(&self) -> Option<&[u8]> {
-        match self {
-            Message::Bytes(bytes) => Some(bytes),
-            _ => None,
-        }
-    }
-}
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 /// [`Channel`] trait for communication between parties.
 pub trait Channel {
-    fn send(&mut self, msg: Message) -> Result<()>;
-    fn recv(&mut self) -> Result<Message>;
+    fn send(&mut self, data: Bytes) -> Result<()>;
+
+    fn recv(&mut self) -> Result<Bytes>;
+
+    fn send_share(&mut self, share: Share) -> Result<()> {
+        let bytes = bincode::serialize(&share).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_share(&mut self) -> Result<Share> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
+
+    fn send_share2(&mut self, shares: (Share, Share)) -> Result<()> {
+        let bytes = bincode::serialize(&shares).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_share2(&mut self) -> Result<(Share, Share)> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
+
+    fn send_share_vec(&mut self, shares: &[Share]) -> Result<()> {
+        let bytes = bincode::serialize(shares).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_share_vec(&mut self) -> Result<Vec<Share>> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
+
+    fn send_secret_inputs(&mut self, inputs: &[(Location, Value)]) -> Result<()> {
+        let bytes = bincode::serialize(inputs).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_secret_inputs(&mut self) -> Result<Vec<(Location, Value)>> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
+
+    fn send_point(&mut self, point: &RistrettoPoint) -> Result<()> {
+        let bytes = bincode::serialize(point).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_point(&mut self) -> Result<RistrettoPoint> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
+
+    fn send_block(&mut self, block: Block) -> Result<()> {
+        let bytes = bincode::serialize(&block).unwrap();
+        self.send(Bytes::from(bytes))
+    }
+
+    fn recv_block(&mut self) -> Result<Block> {
+        let bytes = self.recv()?;
+        Ok(bincode::deserialize(&bytes).unwrap())
+    }
 }
 
 /// [`ThreadChannel`] for communication between threads.
 #[derive(Debug)]
 pub struct ThreadChannel {
-    tx: Sender<Message>,
-    rx: Receiver<Message>,
+    tx: Sender<Bytes>,
+    rx: Receiver<Bytes>,
 }
 
 impl ThreadChannel {
-    pub fn new(tx: Sender<Message>, rx: Receiver<Message>) -> Self {
+    pub fn new(tx: Sender<Bytes>, rx: Receiver<Bytes>) -> Self {
         ThreadChannel { tx, rx }
     }
 }
 
 impl Channel for ThreadChannel {
-    fn send(&mut self, msg: Message) -> Result<()> {
-        Ok(self.tx.send(msg).map_err(Box::from)?)
+    fn send(&mut self, data: Bytes) -> Result<()> {
+        self.tx.send(data).expect("can send");
+        Ok(())
     }
 
-    fn recv(&mut self) -> Result<Message> {
-        Ok(self.rx.recv().map_err(Box::from)?)
+    fn recv(&mut self) -> Result<Bytes> {
+        Ok(self.rx.recv().expect("can recv"))
     }
 }
 
 /// [`TcpChannel`] for communication via a TCP connection.
 #[derive(Debug)]
 pub struct TcpChannel {
-    ch: BincodeChannel<Message>,
     rt: Runtime,
+    stream: Framed<TcpStream, LengthDelimitedCodec>,
 }
 
 impl TcpChannel {
-    /// Create a new [`TcpChannel`] for the party with `id`.
-    /// Connect to other party with given [`SocketAddr`].
-    pub fn new(id: usize, addr: SocketAddr) -> Result<TcpChannel> {
+    /// Create a new [`TcpChannel`] and bind to `addr`.
+    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<TcpChannel> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("failed to build runtime");
 
-        let ch: BincodeChannel<Message> = if id == PARTY_0 {
-            rt.block_on(
-                channel_on(addr)
-                    .retry(Duration::from_millis(500), 100)
-                    .set_tcp_reuseaddr(true)
-                    .set_tcp_nodelay(true),
-            )?
-        } else {
-            rt.block_on(
-                channel_to(addr)
-                    .retry(Duration::from_millis(500), 100)
-                    .set_tcp_reuseaddr(true)
-                    .set_tcp_nodelay(true),
-            )?
-        };
+        let listener = rt.block_on(TcpListener::bind(addr))?;
+        let (stream, _) = rt.block_on(listener.accept())?;
+        let stream = Framed::new(stream, LengthDelimitedCodec::new());
+        Ok(Self { rt, stream })
+    }
 
-        Ok(TcpChannel { ch, rt })
+    /// Create a new [`TcpChannel`] and connect to `addr`.
+    pub fn connect<A: ToSocketAddrs>(addr: A) -> Result<TcpChannel> {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build runtime");
+
+        let stream = loop {
+            if let Ok(stream) = rt.block_on(TcpStream::connect(&addr)) {
+                break stream;
+            } else {
+                thread::sleep(Duration::from_millis(100));
+            }
+        };
+        let stream = Framed::new(stream, LengthDelimitedCodec::new());
+        Ok(Self { rt, stream })
     }
 }
 
 impl Channel for TcpChannel {
-    fn send(&mut self, msg: Message) -> Result<()> {
-        Ok(self.rt.block_on(self.ch.send(msg)).map_err(Box::from)?)
+    fn send(&mut self, data: Bytes) -> Result<()> {
+        Ok(self.rt.block_on(self.stream.send(data))?)
     }
 
-    fn recv(&mut self) -> Result<Message> {
-        Ok(self
-            .rt
-            .block_on(self.ch.recv())
-            .expect("received None")
-            .map_err(Box::from)?)
+    fn recv(&mut self) -> Result<Bytes> {
+        let bytes = self.rt.block_on(self.stream.next()).expect("not closed")?;
+        Ok(bytes.into())
     }
 }

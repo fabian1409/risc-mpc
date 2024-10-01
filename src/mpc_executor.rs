@@ -5,7 +5,7 @@ use crate::{
         chou_orlandi::{OTReceiver, OTSender},
         utils::block::Block,
     },
-    party::PARTY_0,
+    party::Id,
     triple_provider::TripleProvider,
     types::{Float, Integer},
     Share,
@@ -16,9 +16,10 @@ use log::debug;
 use rand::Rng;
 use std::{f64::consts::E, ops::Neg};
 
-/// Number of AND triples needed per secret `<`, `>`, `<=`, `>=`.
-/// Secret `==` and `!=` need `2 * CMP_AND_TRIPLES`.
-pub const CMP_AND_TRIPLES: u64 = 13;
+/// Number of AND triples needed for a A2B conversion.
+pub const A2B_AND_TRIPLES: u64 = 13;
+
+/// Fixed-point precision in bits.
 const FIXED_POINT_PRECISION: u64 = 16;
 
 /// Share `x` with given [`Share`] type.
@@ -96,17 +97,17 @@ pub fn to_fixed_point(embedded: u64) -> Result<f64> {
 
 /// [`MPCExecutor`] handles MPC operations during execution.
 #[derive(Debug)]
-pub struct MPCExecutor<C: Channel> {
-    id: usize,
+pub struct MPCExecutor<C: Channel, T: TripleProvider> {
+    id: Id,
     ch: C,
     sender: OTSender,
     receiver: OTReceiver,
-    triple_provider: TripleProvider,
+    triple_provider: T,
 }
 
-impl<C: Channel> MPCExecutor<C> {
+impl<C: Channel, T: TripleProvider> MPCExecutor<C, T> {
     /// Create new [`MPCExecutor`].
-    pub fn new(id: usize, mut ch: C, triple_provider: TripleProvider) -> Result<MPCExecutor<C>> {
+    pub fn new(id: Id, mut ch: C, triple_provider: T) -> Result<MPCExecutor<C, T>> {
         let sender = OTSender::new(&mut ch)?;
         let receiver = OTReceiver::new(&mut ch)?;
         Ok(MPCExecutor {
@@ -143,7 +144,7 @@ impl<C: Channel> MPCExecutor<C> {
     }
 
     /// Reveal the given [`Share`] for party with `id`.
-    pub fn reveal_for(&mut self, share: Share, id: usize) -> Result<Option<u64>> {
+    pub fn reveal_for(&mut self, share: Share, id: Id) -> Result<Option<u64>> {
         if self.id == id {
             let other = self.ch.recv_share()?;
             Ok(Some(shares_to_x((share, other))?))
@@ -160,59 +161,6 @@ impl<C: Channel> MPCExecutor<C> {
         let g = self.and(x, y)?;
         self.kogge_stone_inner(p, g)
     }
-
-    // /// Add 2 binary shares using a optimized binary addition circuit.
-    // fn bin_add(&mut self, x: Integer, y: Integer) -> Result<Integer> {
-    //     debug!("bin_add x = {x:?} y = {y:?}");
-
-    //     let mut s = self.and(x, y)?;
-    //     let mut p = self.xor(x, y)?;
-    //     let orig_p = p;
-
-    //     let masks = [
-    //         6148914691236517205,
-    //         2459565876494606882,
-    //         578721382704613384,
-    //         36029346783166592,
-    //         140737488388096,
-    //         2147483648u64,
-    //     ];
-
-    //     let mut multipliers = Vec::new();
-
-    //     for i in 0..6 {
-    //         multipliers.push((1 << (2u64.pow(i) + 1)) - 2);
-    //     }
-
-    //     let out_masks: Vec<u64> = masks
-    //         .iter()
-    //         .zip(multipliers.iter())
-    //         .map(|(mask, mult)| mask * mult)
-    //         .collect();
-
-    //     for ((in_mask, out_mask), mult) in
-    //         masks.iter().zip(out_masks.iter()).zip(multipliers.iter())
-    //     {
-    //         let not_out_mask = !out_mask;
-    //         let p0 = self.and(p, Integer::Public(*out_mask))?;
-    //         let s1 = self.and(s, Integer::Public(*in_mask))?.as_u64();
-    //         let p1 = self.and(p, Integer::Public(*in_mask))?.as_u64();
-
-    //         let s1 = Integer::Secret(Share::Binary(s1.wrapping_mul(*mult)));
-    //         let p1 = Integer::Secret(Share::Binary(p1.wrapping_mul(*mult)));
-
-    //         p = self.and(p, Integer::Public(not_out_mask))?;
-
-    //         let tmp = self.and(p0, s1)?;
-    //         s = self.xor(s, tmp)?;
-
-    //         let tmp = self.and(p0, p1)?;
-    //         p = self.xor(p, tmp)?;
-    //     }
-
-    //     let tmp = self.lshift(s, Integer::Public(1))?;
-    //     self.xor(orig_p, tmp)
-    // }
 
     /// Kogge stone adder.
     fn kogge_stone_inner(&mut self, p: Integer, g: Integer) -> Result<Integer> {
@@ -250,7 +198,7 @@ impl<C: Channel> MPCExecutor<C> {
         debug!("a2b conversion src = {x:?}");
         if let Integer::Secret(Share::Arithmetic(share)) = x {
             // https://eprint.iacr.org/2018/403.pdf page 16
-            let (a, b) = if self.id == PARTY_0 {
+            let (a, b) = if self.id == Id::Party0 {
                 (Share::Binary(share), Share::Binary(0))
             } else {
                 (Share::Binary(0), Share::Binary(share))
@@ -270,7 +218,7 @@ impl<C: Channel> MPCExecutor<C> {
     pub fn b2a(&mut self, x: Integer) -> Result<Integer> {
         if let Integer::Secret(Share::Binary(x_b)) = x {
             let mut rng = rand::thread_rng();
-            if self.id == PARTY_0 {
+            if self.id == Id::Party0 {
                 let mut x_a = 0u64;
                 let mut rs = Vec::new();
                 for _ in 0..64 {
@@ -289,7 +237,7 @@ impl<C: Channel> MPCExecutor<C> {
                 self.sender.send(&mut self.ch, &inputs)?;
                 x_a = !x_a;
                 x_a += 1;
-                debug!("id = {} x_a = {x_a}", self.id);
+                debug!("id = {:?} x_a = {x_a}", self.id);
                 Ok(Integer::Secret(Share::Arithmetic(x_a)))
             } else {
                 let mut x_a = 0u64;
@@ -302,7 +250,7 @@ impl<C: Channel> MPCExecutor<C> {
                     x_a = x_a.wrapping_add(e.try_into().unwrap());
                 }
                 x_a = !x_a;
-                debug!("id = {} x_a = {x_a}", self.id);
+                debug!("id = {:?} x_a = {x_a}", self.id);
                 Ok(Integer::Secret(Share::Arithmetic(x_a)))
             }
         } else {
@@ -318,14 +266,14 @@ impl<C: Channel> MPCExecutor<C> {
                 Ok(Integer::Secret(Share::Arithmetic(x.wrapping_add(y))))
             }
             (Integer::Secret(Share::Arithmetic(x)), Integer::Public(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Arithmetic(x.wrapping_add(y))))
                 } else {
                     Ok(Integer::Secret(Share::Arithmetic(x)))
                 }
             }
             (Integer::Public(x), Integer::Secret(Share::Arithmetic(y))) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Arithmetic(x.wrapping_add(y))))
                 } else {
                     Ok(Integer::Secret(Share::Arithmetic(0u64.wrapping_add(y))))
@@ -350,14 +298,14 @@ impl<C: Channel> MPCExecutor<C> {
             (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x + y)),
             (Float::Secret(x), Float::Secret(y)) => Ok(Float::Secret(x.wrapping_add(y))),
             (Float::Secret(x), Float::Public(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Float::Secret(x.wrapping_add(y.embed()?)))
                 } else {
                     Ok(Float::Secret(x))
                 }
             }
             (Float::Public(x), Float::Secret(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Float::Secret(x.embed()?.wrapping_add(y)))
                 } else {
                     Ok(Float::Secret(0u64.wrapping_add(y)))
@@ -374,14 +322,14 @@ impl<C: Channel> MPCExecutor<C> {
                 Ok(Integer::Secret(Share::Arithmetic(x.wrapping_sub(y))))
             }
             (Integer::Secret(Share::Arithmetic(x)), Integer::Public(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Arithmetic(x.wrapping_sub(y))))
                 } else {
                     Ok(Integer::Secret(Share::Arithmetic(x)))
                 }
             }
             (Integer::Public(x), Integer::Secret(Share::Arithmetic(y))) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Arithmetic(x.wrapping_sub(y))))
                 } else {
                     Ok(Integer::Secret(Share::Arithmetic(0u64.wrapping_sub(y))))
@@ -401,14 +349,14 @@ impl<C: Channel> MPCExecutor<C> {
             (Float::Public(x), Float::Public(y)) => Ok(Float::Public(x - y)),
             (Float::Secret(x), Float::Secret(y)) => Ok(Float::Secret(x.wrapping_sub(y))),
             (Float::Secret(x), Float::Public(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Float::Secret(x.wrapping_sub(y.embed()?)))
                 } else {
                     Ok(Float::Secret(x))
                 }
             }
             (Float::Public(x), Float::Secret(y)) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Float::Secret(x.embed()?.wrapping_sub(y)))
                 } else {
                     Ok(Float::Secret(0u64.wrapping_sub(y)))
@@ -431,7 +379,7 @@ impl<C: Channel> MPCExecutor<C> {
 
                 let (d, e) = self.reveal2((d_share, e_share))?;
 
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Arithmetic(
                         c.wrapping_add(d.wrapping_mul(y))
                             .wrapping_add(e.wrapping_mul(x))
@@ -459,7 +407,7 @@ impl<C: Channel> MPCExecutor<C> {
     // https://eprint.iacr.org/2017/396.pdf
     // https://www.esat.kuleuven.be/cosic/publications/article-3675.pdf
     fn fmul_truncate(&mut self, x: Integer) -> Result<Float> {
-        if self.id == PARTY_0 {
+        if self.id == Id::Party0 {
             Ok(Float::Secret(x.as_u64() >> FIXED_POINT_PRECISION))
         } else {
             let tmp = self.sub(Integer::Public(u64::MAX), x)?;
@@ -485,7 +433,7 @@ impl<C: Channel> MPCExecutor<C> {
 
                 let (d, e) = self.reveal2((d_share, e_share))?;
 
-                let res = if self.id == PARTY_0 {
+                let res = if self.id == Id::Party0 {
                     Integer::Secret(Share::Arithmetic(
                         c.wrapping_add(d.wrapping_mul(y))
                             .wrapping_add(e.wrapping_mul(x))
@@ -543,7 +491,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let ds = self.reveal_vec(d_shares)?;
                 let es = self.reveal_vec(e_shares)?;
 
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(izip!(x, y, ds, es, triples)
                         .map(|(x, y, d, e, (_, _, c))| {
                             Integer::Secret(Share::Arithmetic(
@@ -632,7 +580,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let ds = self.reveal_vec(d_shares)?;
                 let es = self.reveal_vec(e_shares)?;
 
-                let res = if self.id == PARTY_0 {
+                let res = if self.id == Id::Party0 {
                     izip!(x, y, ds, es, triples)
                         .map(|(x, y, d, e, (_, _, c))| {
                             Ok(Integer::Secret(Share::Arithmetic(
@@ -762,7 +710,7 @@ impl<C: Channel> MPCExecutor<C> {
             }
             (Integer::Secret(Share::Binary(x)), Integer::Public(y))
             | (Integer::Public(y), Integer::Secret(Share::Binary(x))) => {
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Binary(x ^ y)))
                 } else {
                     Ok(Integer::Secret(Share::Binary(x)))
@@ -795,7 +743,7 @@ impl<C: Channel> MPCExecutor<C> {
 
                 let (d, e) = self.reveal2((d_share, e_share))?;
 
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(Integer::Secret(Share::Binary(
                         (d & y) ^ (e & x) ^ (e & d) ^ c,
                     )))
@@ -854,7 +802,7 @@ impl<C: Channel> MPCExecutor<C> {
                 let ds = self.reveal_vec(d_shares)?;
                 let es = self.reveal_vec(e_shares)?;
 
-                if self.id == PARTY_0 {
+                if self.id == Id::Party0 {
                     Ok(izip!(x, y, ds, es, triples)
                         .map(|(x, y, d, e, (_, _, c))| {
                             Integer::Secret(Share::Binary(
@@ -1245,6 +1193,8 @@ impl<C: Channel> MPCExecutor<C> {
 mod tests {
     use super::*;
     use crate::channel::ThreadChannel;
+    use crate::party::Id;
+    use crate::triple_provider::Triple;
     use crate::types::Value;
     use approx::assert_relative_eq;
     use bytes::Bytes;
@@ -1268,6 +1218,18 @@ mod tests {
     impl From<f64> for Output {
         fn from(value: f64) -> Self {
             Output::Float(value)
+        }
+    }
+
+    struct TestTripleProvider;
+
+    impl TripleProvider for TestTripleProvider {
+        fn mul_triple(&mut self) -> Option<Triple> {
+            Some((0, 0, 0))
+        }
+
+        fn and_triple(&mut self) -> Option<Triple> {
+            Some((0, 0, 0))
         }
     }
 
@@ -1297,7 +1259,11 @@ mod tests {
         }
     }
 
-    fn verify(res: Value, expected: Output, executor: &mut MPCExecutor<ThreadChannel>) {
+    fn verify(
+        res: Value,
+        expected: Output,
+        executor: &mut MPCExecutor<ThreadChannel, TestTripleProvider>,
+    ) {
         match res {
             Value::Integer(integer) => {
                 let res = match integer {
@@ -1327,9 +1293,8 @@ mod tests {
 
     macro_rules! test {
         ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
-            let run = |id: usize, mut ch: ThreadChannel, x: Value, y: Value, expected: Output| {
-                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
-                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
+            let run = |id: Id, ch: ThreadChannel, x: Value, y: Value, expected: Output| {
+                let mut executor = MPCExecutor::new(id, ch, TestTripleProvider).unwrap();
                 let value = $f(&mut executor, x.try_into().unwrap(), y.try_into().unwrap())
                     .unwrap()
                     .into();
@@ -1338,22 +1303,21 @@ mod tests {
             let (ch0, ch1) = create_channels();
             let (x0, x1) = inputs($x.into());
             let (y0, y1) = inputs($y.into());
-            let party0 = thread::spawn(move || run(0, ch0, x0, y0, $expected));
-            let party1 = thread::spawn(move || run(1, ch1, x1, y1, $expected));
+            let party0 = thread::spawn(move || run(Id::Party0, ch0, x0, y0, $expected));
+            let party1 = thread::spawn(move || run(Id::Party1, ch1, x1, y1, $expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};
         ($f:expr, $x:expr, $expected:expr) => {{
-            let run = |id: usize, mut ch: ThreadChannel, x: Value, expected: Output| {
-                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
-                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
+            let run = |id: Id, ch: ThreadChannel, x: Value, expected: Output| {
+                let mut executor = MPCExecutor::new(id, ch, TestTripleProvider).unwrap();
                 let value = $f(&mut executor, x.try_into().unwrap()).unwrap().into();
                 verify(value, expected, &mut executor);
             };
             let (ch0, ch1) = create_channels();
             let (x0, x1) = inputs($x.into());
-            let party0 = thread::spawn(move || run(0, ch0, x0, $expected));
-            let party1 = thread::spawn(move || run(1, ch1, x1, $expected));
+            let party0 = thread::spawn(move || run(Id::Party0, ch0, x0, $expected));
+            let party1 = thread::spawn(move || run(Id::Party1, ch1, x1, $expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};
@@ -1361,13 +1325,8 @@ mod tests {
 
     macro_rules! test_vec {
         ($f:expr, $x:expr, $y:expr, $expected:expr) => {{
-            let run = |id: usize,
-                       mut ch: ThreadChannel,
-                       x: &[Value],
-                       y: &[Value],
-                       expected: &[Output]| {
-                let triple_prvider = TripleProvider::new(id, &mut ch).unwrap();
-                let mut executor = MPCExecutor::new(id, ch, triple_prvider).unwrap();
+            let run = |id: Id, ch: ThreadChannel, x: &[Value], y: &[Value], expected: &[Output]| {
+                let mut executor = MPCExecutor::new(id, ch, TestTripleProvider).unwrap();
                 let values = $f(
                     &mut executor,
                     &x.iter()
@@ -1388,8 +1347,8 @@ mod tests {
             let (ch0, ch1) = create_channels();
             let (x0, x1): (Vec<Value>, Vec<Value>) = $x.iter().map(|x| inputs((*x).into())).unzip();
             let (y0, y1): (Vec<Value>, Vec<Value>) = $y.iter().map(|y| inputs((*y).into())).unzip();
-            let party0 = thread::spawn(move || run(0, ch0, &x0, &y0, &$expected));
-            let party1 = thread::spawn(move || run(1, ch1, &x1, &y1, &$expected));
+            let party0 = thread::spawn(move || run(Id::Party0, ch0, &x0, &y0, &$expected));
+            let party1 = thread::spawn(move || run(Id::Party1, ch1, &x1, &y1, &$expected));
             party0.join().unwrap();
             party1.join().unwrap();
         }};

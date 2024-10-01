@@ -1,6 +1,5 @@
 use risc_mpc::{
-    Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, CMP_AND_TRIPLES, PARTY_0,
-    U64_BYTES,
+    Id, Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, A2B_AND_TRIPLES, U64_BYTES,
 };
 use std::collections::BTreeSet;
 
@@ -52,7 +51,7 @@ fn main() -> Result<()> {
     let k = n;
 
     let ch = TcpChannel::bind("127.0.0.1:8000")?;
-    let mut party = PartyBuilder::new(PARTY_0, ch)
+    let mut party = PartyBuilder::new(Id::Party0, ch)
         .register_u64(XRegister::x10, Integer::Public(0x0)) // set0 address
         .register_u64(XRegister::x11, Integer::Public(n)) // set0 length
         .register_u64(XRegister::x12, Integer::Public(U64_BYTES * n)) // set1 address
@@ -64,7 +63,7 @@ fn main() -> Result<()> {
                 .map(|x| Integer::Secret(Share::Arithmetic(*x)))
                 .collect(),
         )?
-        .n_and_triples(CMP_AND_TRIPLES * 2 * (n + k)) // 2 lt per set element cmp
+        .n_and_triples(A2B_AND_TRIPLES * 2 * (n + k)) // 2 lt per set element cmp
         .build()?;
 
     party.execute(&program)?;

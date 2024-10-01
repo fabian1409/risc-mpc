@@ -1,4 +1,4 @@
-use risc_mpc::{Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, PARTY_1, U64_BYTES};
+use risc_mpc::{Id, Integer, PartyBuilder, Result, Share, TcpChannel, XRegister, U64_BYTES};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     let n = k;
 
     let ch = TcpChannel::connect("127.0.0.1:8000")?;
-    let mut party = PartyBuilder::new(PARTY_1, ch)
+    let mut party = PartyBuilder::new(Id::Party1, ch)
         .register_u64(XRegister::x10, Integer::Public(0x0)) // salaries0 address
         .register_u64(XRegister::x11, Integer::Public(k)) // salaries0 length
         .register_u64(XRegister::x12, Integer::Public(U64_BYTES * k)) // salaries1 address

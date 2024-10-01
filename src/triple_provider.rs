@@ -5,28 +5,43 @@ use crate::{
         alsz::{OTExtReceiver, OTExtSender},
         utils::block::Block,
     },
-    party::{PARTY_0, PARTY_1},
+    party::Id,
 };
 use bit::BitIndex;
 use itertools::izip;
-use log::{debug, info};
+use log::info;
 use rand::Rng;
 use std::time::Instant;
 
 pub type Triple = (u64, u64, u64);
 
+pub trait TripleProvider {
+    fn mul_triple(&mut self) -> Option<Triple>;
+    fn and_triple(&mut self) -> Option<Triple>;
+}
+
 #[derive(Debug)]
-pub struct TripleProvider {
-    id: usize,
+pub struct OTTripleProvider {
+    id: Id,
     sender: OTExtSender,
     receiver: OTExtReceiver,
     mul_triple_pool: Vec<(u64, u64, u64)>,
     and_triple_pool: Vec<(u64, u64, u64)>,
 }
 
-impl TripleProvider {
-    pub fn new<C: Channel>(id: usize, ch: &mut C) -> Result<TripleProvider> {
-        let (sender, receiver) = if id == PARTY_0 {
+impl TripleProvider for OTTripleProvider {
+    fn mul_triple(&mut self) -> Option<Triple> {
+        self.mul_triple_pool.pop()
+    }
+
+    fn and_triple(&mut self) -> Option<Triple> {
+        self.and_triple_pool.pop()
+    }
+}
+
+impl OTTripleProvider {
+    pub fn new<C: Channel>(id: Id, ch: &mut C) -> Result<OTTripleProvider> {
+        let (sender, receiver) = if id == Id::Party0 {
             let sender = OTExtSender::new(ch)?;
             let receiver = OTExtReceiver::new(ch)?;
             (sender, receiver)
@@ -35,7 +50,7 @@ impl TripleProvider {
             let sender = OTExtSender::new(ch)?;
             (sender, receiver)
         };
-        Ok(TripleProvider {
+        Ok(OTTripleProvider {
             id,
             sender,
             receiver,
@@ -44,43 +59,55 @@ impl TripleProvider {
         })
     }
 
-    pub fn setup<C: Channel>(
-        &mut self,
-        ch: &mut C,
-        n_mul_triples: u64,
-        n_and_triples: u64,
-    ) -> Result<()> {
+    // pub fn mul_triple(&mut self) -> Option<Triple> {
+    //     self.mul_triple_pool.pop()
+    // }
+
+    // pub fn and_triple(&mut self) -> Option<Triple> {
+    //     self.and_triple_pool.pop()
+    // }
+
+    // https://encrypto.de/papers/DSZ15.pdf
+    pub fn gen_mul_triples<C: Channel>(&mut self, ch: &mut C, n_mul_triples: u64) -> Result<()> {
+        info!("generating {n_mul_triples} mul-triples...");
         let start = Instant::now();
-
-        debug!("generating {n_mul_triples} mul-triples");
-        self.mul_triple_pool = self.gen_mul_triples(ch, n_mul_triples)?;
-
-        debug!("generating {n_and_triples} and-triples");
-        self.and_triple_pool = self.gen_and_triples(ch, n_and_triples)?;
-
-        let duration = start.elapsed();
-        info!("setup done, took {}ms", duration.as_millis());
+        let mut rng = rand::thread_rng();
+        let a_shares = (0..n_mul_triples).map(|_| rng.gen()).collect::<Vec<u64>>();
+        let b_shares = (0..n_mul_triples).map(|_| rng.gen()).collect::<Vec<u64>>();
+        let u_shares = self.ot_mul(ch, &a_shares, &b_shares, Id::Party0)?;
+        let v_shares = self.ot_mul(ch, &a_shares, &b_shares, Id::Party1)?;
+        let triples = izip!(a_shares, b_shares, u_shares, v_shares)
+            .map(|(a, b, u, v)| (a, b, a.wrapping_mul(b).wrapping_add(u).wrapping_add(v)))
+            .collect();
+        self.mul_triple_pool = triples;
+        info!("took {}ms", start.elapsed().as_millis());
         Ok(())
     }
 
-    #[cfg(not(test))]
-    pub fn mul_triple(&mut self) -> Option<Triple> {
-        self.mul_triple_pool.pop()
-    }
-
-    #[cfg(test)]
-    pub fn mul_triple(&mut self) -> Option<Triple> {
-        Some(Triple::default())
-    }
-
-    #[cfg(not(test))]
-    pub fn and_triple(&mut self) -> Option<Triple> {
-        self.and_triple_pool.pop()
-    }
-
-    #[cfg(test)]
-    pub fn and_triple(&mut self) -> Option<Triple> {
-        Some(Triple::default())
+    pub fn gen_and_triples<C: Channel>(&mut self, ch: &mut C, n_and_triples: u64) -> Result<()> {
+        info!("generating {n_and_triples} and-triples...");
+        let start = Instant::now();
+        if self.id == Id::Party0 {
+            let aus = self.ot_rand_ab_uv(ch, Id::Party1, n_and_triples)?;
+            let bvs = self.ot_rand_ab_uv(ch, Id::Party0, n_and_triples)?;
+            let triples = aus
+                .into_iter()
+                .zip(bvs)
+                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
+                .collect();
+            self.and_triple_pool = triples;
+        } else {
+            let bvs = self.ot_rand_ab_uv(ch, Id::Party1, n_and_triples)?;
+            let aus = self.ot_rand_ab_uv(ch, Id::Party0, n_and_triples)?;
+            let triples = aus
+                .into_iter()
+                .zip(bvs)
+                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
+                .collect();
+            self.and_triple_pool = triples;
+        }
+        info!("took {}ms", start.elapsed().as_millis());
+        Ok(())
     }
 
     // https://link.springer.com/content/pdf/10.1007/3-540-48405-1_8.pdf
@@ -89,7 +116,7 @@ impl TripleProvider {
         ch: &mut C,
         a_shares: &[u64],
         b_shares: &[u64],
-        sender: usize,
+        sender: Id,
     ) -> Result<Vec<u64>> {
         let mut rng = rand::thread_rng();
         if self.id == sender {
@@ -135,27 +162,10 @@ impl TripleProvider {
         }
     }
 
-    // https://encrypto.de/papers/DSZ15.pdf
-    fn gen_mul_triples<C: Channel>(
-        &mut self,
-        ch: &mut C,
-        n_mul_triples: u64,
-    ) -> Result<Vec<(u64, u64, u64)>> {
-        let mut rng = rand::thread_rng();
-        let a_shares = (0..n_mul_triples).map(|_| rng.gen()).collect::<Vec<u64>>();
-        let b_shares = (0..n_mul_triples).map(|_| rng.gen()).collect::<Vec<u64>>();
-        let u_shares = self.ot_mul(ch, &a_shares, &b_shares, PARTY_0)?;
-        let v_shares = self.ot_mul(ch, &a_shares, &b_shares, PARTY_1)?;
-        let triples = izip!(a_shares, b_shares, u_shares, v_shares)
-            .map(|(a, b, u, v)| (a, b, a.wrapping_mul(b).wrapping_add(u).wrapping_add(v)))
-            .collect();
-        Ok(triples)
-    }
-
     fn ot_rand_ab_uv<C: Channel>(
         &mut self,
         ch: &mut C,
-        sender: usize,
+        sender: Id,
         n_and_triples: u64,
     ) -> Result<Vec<(u64, u64)>> {
         let mut rng = rand::thread_rng();
@@ -195,32 +205,6 @@ impl TripleProvider {
                 au.1 = u;
             }
             Ok(aus)
-        }
-    }
-
-    fn gen_and_triples<C: Channel>(
-        &mut self,
-        ch: &mut C,
-        n_and_triples: u64,
-    ) -> Result<Vec<(u64, u64, u64)>> {
-        if self.id == PARTY_0 {
-            let aus = self.ot_rand_ab_uv(ch, PARTY_1, n_and_triples)?;
-            let bvs = self.ot_rand_ab_uv(ch, PARTY_0, n_and_triples)?;
-            let triples = aus
-                .into_iter()
-                .zip(bvs)
-                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
-                .collect();
-            Ok(triples)
-        } else {
-            let bvs = self.ot_rand_ab_uv(ch, PARTY_1, n_and_triples)?;
-            let aus = self.ot_rand_ab_uv(ch, PARTY_0, n_and_triples)?;
-            let triples = aus
-                .into_iter()
-                .zip(bvs)
-                .map(|((a, u), (b, v))| (a, b, (a & b) ^ u ^ v))
-                .collect();
-            Ok(triples)
         }
     }
 }
